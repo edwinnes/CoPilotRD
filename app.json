@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "CoPilotRD Pasajeros",
+    "slug": "copilotrd-passenger",
+    "version": "2.4.0",
+    "orientation": "portrait",
+    "icon": "./assets/logo.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.nosotrosrd.copilotrd.client",
+      "config": {
+        "googleMapsApiKey": "AIzaSyDUFeHdnpJj26VCQCfH0Y-XfhAtpNpLNZ8"
+      },
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "NosotrosRD requiere acceso a tu ubicación para calcular rutas y despachar la unidad más cercana."
+      }
+    },
+    "android": {
+      "package": "com.nosotrosrd.copilotrd.client",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/logo.png",
+        "backgroundColor": "#000000"
+      },
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyDUFeHdnpJj26VCQCfH0Y-XfhAtpNpLNZ8"
+        }
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "scheme": "copilotrd",
+    "extra": {
+      "cloudRunApiUrl": "https://nosotrosrd-backend-589218004938.us-east1.run.app",
+      "version": "2.4.0",
+      "environment": "production"
+    },
+    "sdkVersion": "57.0.0",
+    "newArchEnabled": false,
+    "plugins": [
+      "expo-secure-store",
+      "expo-status-bar"
+    ]
+  }
+}
