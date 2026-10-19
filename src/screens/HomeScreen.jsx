@@ -1,117 +1,118 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
+  TextInput,
   ScrollView,
   Alert
 } from 'react-native';
+import CoPilotClientMap from '../components/CoPilotClientMap';
 import api from '../services/mobileApi';
+import { DEFAULT_LOCATIONS } from '../services/mapService';
 
 export default function HomeScreen() {
-  const [loading, setLoading] = useState(true);
-  const [sduiConfig, setSduiConfig] = useState(null);
-  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [pickupText, setPickupText] = useState(DEFAULT_LOCATIONS.pickup.name);
+  const [destText, setDestText] = useState(DEFAULT_LOCATIONS.destination.name);
+  const [quoteData, setQuoteData] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState('clasico');
 
-  useEffect(() => {
-    loadHomeSdui();
-  }, []);
-
-  const loadHomeSdui = async () => {
+  const handleGetQuote = async () => {
     try {
-      setLoading(true);
-      const response = await api.get('/api/v1/sdui/home');
-      if (response.data && response.data.schema) {
-        setSduiConfig(response.data.schema);
-        if (response.data.schema.categories && response.data.schema.categories.length > 0) {
-          setSelectedCategory(response.data.schema.categories[0].id);
-        }
+      const response = await api.post('/api/v1/clients/fares/quote', {
+        distanceKm: 6.4,
+        durationMinutes: 18
+      });
+      if (response.data && response.data.success) {
+        setQuoteData(response.data);
       }
     } catch (error) {
-      console.warn('[HomeScreen SDUI Error]:', error.message);
-      Alert.alert(
-        'Error de Conexión',
-        'No se pudo sincronizar la pantalla principal con el servidor central.'
-      );
-    } finally {
-      setLoading(false);
+      Alert.alert('Error', 'No se pudo conectar con el servidor.');
     }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#00E676" />
-        <Text style={styles.loadingText}>Cargando experiencia CoPilotRD...</Text>
-      </View>
-    );
-  }
+  const handleRequestRide = async () => {
+    if (!quoteData) {
+      Alert.alert('Aviso', 'Primero obtén la cotización de la ruta.');
+      return;
+    }
+    const selectedFare = quoteData.fares.find(f => f.id === selectedCategory);
+    try {
+      const response = await api.post('/api/v1/clients/trips/request', {
+        origin: pickupText,
+        destination: destText,
+        fareDOP: selectedFare ? selectedFare.priceDOP : 350
+      });
+      if (response.data && response.data.success) {
+        Alert.alert('¡Éxito!', `Conductor asignado: ${response.data.assignedDriver.fullName}`);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo enviar la solicitud.');
+    }
+  };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Cabecera Principal */}
-      <View style={styles.header}>
-        <Text style={styles.title}>{sduiConfig?.title || 'CoPilotRD'}</Text>
-        <Text style={styles.subtitle}>
-          {sduiConfig?.city}, {sduiConfig?.region} ({sduiConfig?.currency})
-        </Text>
+    <View style={styles.container}>
+      {/* 1. MAPA DE FONDO COMPLETO (Conserva gestos y baja por debajo) */}
+      <View style={styles.backgroundMap}>
+        <CoPilotClientMap isExpanded={true} />
       </View>
 
-      {/* Banner de Beneficios */}
-      {sduiConfig?.benefits && (
-        <View style={styles.benefitsCard}>
-          <Text style={styles.benefitTitle}>🎁 Beneficios Activos</Text>
-          {sduiConfig.benefits.kmBank?.enabled && (
-            <Text style={styles.benefitItem}>
-              • Banco de KM: {sduiConfig.benefits.kmBank.description}
-            </Text>
-          )}
-          {sduiConfig.benefits.hospitalDiscount?.enabled && (
-            <Text style={styles.benefitItem}>
-              • Triangulación Hospitalaria: {sduiConfig.benefits.hospitalDiscount.description}
-            </Text>
+      {/* 2. PANEL Y CONSOLA DE SOLICITUD FLOTANTE */}
+      <View style={styles.overlayContainer} pointerEvents="box-none">
+        <View style={styles.panelCard}>
+          <View style={styles.handleBar} />
+          <Text style={styles.panelTitle}>NósotrosRD - Planificador Dinámico</Text>
+
+          <View style={styles.inputCard}>
+            <TextInput
+              style={styles.input}
+              value={pickupText}
+              onChangeText={setPickupText}
+              placeholder="Punto de Origen"
+              placeholderTextColor="#8A99AD"
+            />
+            <TextInput
+              style={styles.input}
+              value={destText}
+              onChangeText={setDestText}
+              placeholder="Punto de Destino"
+              placeholderTextColor="#8A99AD"
+            />
+            <TouchableOpacity style={styles.calcButton} onPress={handleGetQuote}>
+              <Text style={styles.calcButtonText}>Calcular Ruta y Tarifas</Text>
+            </TouchableOpacity>
+          </View>
+
+          {quoteData && quoteData.fares && (
+            <>
+              <Text style={styles.sectionTitle}>Selecciona Categoría</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoriesRow}>
+                {quoteData.fares.map((item) => {
+                  const isSelected = selectedCategory === item.id;
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      style={[styles.categoryCard, isSelected && styles.categoryCardSelected]}
+                      onPress={() => setSelectedCategory(item.id)}
+                    >
+                      <Text style={[styles.categoryName, isSelected && styles.textSelected]}>{item.name}</Text>
+                      <Text style={[styles.categoryFare, isSelected && styles.textSelected]}>RD$ {item.priceDOP}</Text>
+                      <Text style={styles.categoryEta}>ETA: {item.etaMinutes} min</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              <TouchableOpacity style={styles.actionButton} onPress={handleRequestRide}>
+                <Text style={styles.actionButtonText}>Confirmar y Solicitar Viaje</Text>
+              </TouchableOpacity>
+            </>
           )}
         </View>
-      )}
-
-      {/* Selector Dinámico de Categorías */}
-      <Text style={styles.sectionTitle}>Selecciona tu Servicio</Text>
-      <View style={styles.categoriesContainer}>
-        {sduiConfig?.categories?.map((item) => {
-          const isSelected = selectedCategory === item.id;
-          return (
-            <TouchableOpacity
-              key={item.id}
-              style={[styles.categoryCard, isSelected && styles.categoryCardSelected]}
-              onPress={() => setSelectedCategory(item.id)}
-            >
-              <View style={styles.categoryHeader}>
-                <Text style={[styles.categoryName, isSelected && styles.textSelected]}>
-                  {item.name}
-                </Text>
-                <Text style={[styles.categoryFare, isSelected && styles.textSelected]}>
-                  RD${item.baseFare.toFixed(2)}
-                </Text>
-              </View>
-              <Text style={styles.categoryDesc}>{item.description}</Text>
-              <Text style={styles.ratesText}>
-                RD${item.perKm}/km • RD${item.perMin}/min
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
       </View>
-
-      {/* Botón Principal de Confirmación */}
-      <TouchableOpacity
-        style={styles.actionButton}
-        onPress={() => Alert.alert('CoPilotRD', 'Solicitando servicio en vivo...')}
-      >
-        <Text style={styles.actionButtonText}>Solicitar CoPilot</Text>
-      </TouchableOpacity>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -120,107 +121,116 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0A0E1A',
   },
-  content: {
-    padding: 20,
-    paddingTop: 50,
+  backgroundMap: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 0,
   },
-  centerContainer: {
-    flex: 1,
-    backgroundColor: '#0A0E1A',
-    justifyContent: 'center',
-    alignItems: 'center',
+  overlayContainer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    zIndex: 1,
   },
-  loadingText: {
-    color: '#8A99AD',
-    marginTop: 15,
-    fontSize: 14,
-  },
-  header: {
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#00E676',
-    marginTop: 4,
-  },
-  benefitsCard: {
-    backgroundColor: '#161F33',
-    padding: 16,
-    borderRadius: 12,
+  panelCard: {
+    backgroundColor: '#121829',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     borderWidth: 1,
-    borderColor: '#00E67640',
-    marginBottom: 25,
+    borderColor: '#212D4A',
+    padding: 20,
+    paddingBottom: 35,
+    maxHeight: '60%',
   },
-  benefitTitle: {
-    color: '#00E676',
+  handleBar: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#2F3E5D',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 10,
+  },
+  panelTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
     fontWeight: 'bold',
-    fontSize: 15,
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  inputCard: {
+    backgroundColor: '#161F33',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#212D4A',
+  },
+  input: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#212D4A',
     marginBottom: 8,
   },
-  benefitItem: {
-    color: '#CCCCCC',
-    fontSize: 13,
-    marginTop: 4,
+  calcButton: {
+    backgroundColor: '#212D4A',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 5,
+  },
+  calcButtonText: {
+    color: '#00E676',
+    fontSize: 14,
+    fontWeight: '600',
   },
   sectionTitle: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '600',
+    marginBottom: 10,
+  },
+  categoriesRow: {
     marginBottom: 15,
   },
-  categoriesContainer: {
-    gap: 12,
-    marginBottom: 25,
-  },
   categoryCard: {
-    backgroundColor: '#121829',
-    padding: 16,
+    backgroundColor: '#161F33',
+    padding: 14,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#212D4A',
+    marginRight: 10,
+    width: 140,
   },
   categoryCardSelected: {
     borderColor: '#00E676',
     backgroundColor: '#0D2821',
   },
-  categoryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
   categoryName: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: 'bold',
     color: '#FFFFFF',
+    marginBottom: 4,
   },
   categoryFare: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
     color: '#00E676',
+    marginBottom: 2,
+  },
+  categoryEta: {
+    fontSize: 11,
+    color: '#8A99AD',
   },
   textSelected: {
     color: '#00E676',
-  },
-  categoryDesc: {
-    color: '#8A99AD',
-    fontSize: 13,
-    marginBottom: 8,
-  },
-  ratesText: {
-    color: '#55667E',
-    fontSize: 12,
   },
   actionButton: {
     backgroundColor: '#00E676',
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
-    marginTop: 10,
+    marginBottom: 10,
   },
   actionButtonText: {
     color: '#0A0E1A',

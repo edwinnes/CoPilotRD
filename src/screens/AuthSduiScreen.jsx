@@ -1,68 +1,22 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   ScrollView,
-  Animated,
+  ActivityIndicator,
   StyleSheet,
   Alert,
 } from 'react-native';
 import { fetchAuthSdui } from '../services/mobileApi';
 import { useAuth } from '../context/AuthContext';
 import GoogleAuthButton from '../components/GoogleAuthButton';
-
-/**
- * Componente Skeleton Loader para la Tarjeta de Autenticación
- */
-function AuthSkeleton() {
-  const opacity = useRef(new Animated.Value(0.3)).current;
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, {
-          toValue: 0.8,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 0.3,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [opacity]);
-
-  return (
-    <View style={styles.authCard}>
-      {/* Title Skeleton */}
-      <Animated.View style={[styles.skeletonBlock, { width: 180, height: 32, opacity }]} />
-      <Animated.View style={[styles.skeletonBlock, { width: 130, height: 16, marginTop: 12, opacity }]} />
-
-      {/* Input Skeletons */}
-      <View style={{ width: '100%', marginTop: 28, gap: 14 }}>
-        <Animated.View style={[styles.skeletonBlock, { width: '100%', height: 52, borderRadius: 14, opacity }]} />
-        <Animated.View style={[styles.skeletonBlock, { width: '100%', height: 52, borderRadius: 14, opacity }]} />
-        <Animated.View style={[styles.skeletonBlock, { width: '100%', height: 52, borderRadius: 14, opacity }]} />
-      </View>
-
-      {/* Social Buttons Skeletons */}
-      <View style={{ width: '100%', marginTop: 24, gap: 12 }}>
-        <Animated.View style={[styles.skeletonBlock, { width: '100%', height: 52, borderRadius: 14, opacity }]} />
-        <Animated.View style={[styles.skeletonBlock, { width: '100%', height: 52, borderRadius: 14, opacity }]} />
-      </View>
-    </View>
-  );
-}
+import CoPilotLogo from '../components/CoPilotLogo';
 
 /**
  * Pantalla de Autenticación SDUI (Cliente) - CoPilotRD
- * Incluye Skeleton Loader y Manejador de Solicitudes/Red con mensaje amigable.
+ * Interfaz estricta conectada a Cloud Run sin fallbacks locales.
  */
 export default function AuthSduiScreen({ onAuthSuccess }) {
   const { login, register, loginWithGoogle } = useAuth();
@@ -70,6 +24,7 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
   const role = 'CLIENT';
   const [sduiSchema, setSduiSchema] = useState(null);
   const [loadingSchema, setLoadingSchema] = useState(true);
+  const [connectionError, setConnectionError] = useState(false);
   const [mode, setMode] = useState('LOGIN'); // 'LOGIN' | 'REGISTER'
 
   // Estados del Formulario
@@ -79,28 +34,22 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
   const [documentId, setDocumentId] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  
-  // Manejo de Mensajes de Red / Múltiples Solicitudes
-  const [networkNotice, setNetworkNotice] = useState(null);
+  const [errorMessage, setErrorMessage] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
     async function loadAuthSchema() {
       setLoadingSchema(true);
-      setNetworkNotice(null);
+      setConnectionError(false);
       try {
         const res = await fetchAuthSdui(role);
-        if (isMounted) {
-          if (res && res.schema) {
-            setSduiSchema(res.schema);
-          } else {
-            setNetworkNotice('Estamos teniendo múltiples solicitudes, por favor espera un momento.');
-          }
+        if (isMounted && res && res.schema) {
+          setSduiSchema(res.schema);
+        } else {
+          if (isMounted) setConnectionError(true);
         }
       } catch (err) {
-        if (isMounted) {
-          setNetworkNotice('Estamos teniendo múltiples solicitudes, por favor espera un momento.');
-        }
+        if (isMounted) setConnectionError(true);
       } finally {
         if (isMounted) setLoadingSchema(false);
       }
@@ -113,33 +62,33 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
 
   const handleSubmitLogin = async () => {
     if (!emailOrPhone || !password) {
-      setNetworkNotice('Por favor ingresa tu Correo o Teléfono y Contraseña.');
+      setErrorMessage('Por favor ingresa tu correo o teléfono y tu contraseña.');
       return;
     }
     setSubmitting(true);
-    setNetworkNotice(null);
+    setErrorMessage(null);
 
     try {
       const res = await login(emailOrPhone, password, role);
       if (res.success && res.user) {
         if (onAuthSuccess) onAuthSuccess(res.user);
       } else {
-        setNetworkNotice(res.message || 'Estamos teniendo múltiples solicitudes, por favor espera un momento.');
+        setErrorMessage(res.message || 'Los datos ingresados no son correctos.');
       }
     } catch (err) {
-      setNetworkNotice('Estamos teniendo múltiples solicitudes, por favor espera un momento.');
+      setErrorMessage('No pudimos conectar con el servidor. Verifica tu conexión a internet.');
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleSubmitRegister = async () => {
-    if (!fullName || !emailOrPhone) {
-      setNetworkNotice('Por favor ingresa tu Nombre y Teléfono.');
+    if (!fullName || !emailOrPhone || !password) {
+      setErrorMessage('Por favor completa todos los campos obligatorios.');
       return;
     }
     setSubmitting(true);
-    setNetworkNotice(null);
+    setErrorMessage(null);
 
     try {
       const res = await register({
@@ -153,181 +102,208 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
       if (res.success && res.user) {
         if (onAuthSuccess) onAuthSuccess(res.user);
       } else {
-        setNetworkNotice(res.message || 'Estamos teniendo múltiples solicitudes, por favor espera un momento.');
+        setErrorMessage(res.message || 'No se pudo completar el registro en este momento.');
       }
     } catch (err) {
-      setNetworkNotice('Estamos teniendo múltiples solicitudes, por favor espera un momento.');
+      setErrorMessage('Hubo un problema al registrar tu cuenta. Inténtalo de nuevo.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const dividerText = sduiSchema?.dividerText || 'Or continue with';
+  // Pantalla de bloqueo si hay error de conexión con el servidor (sin fallbacks)
+  if (connectionError) {
+    return (
+      <View style={styles.blockContainer}>
+        <View style={styles.blockCard}>
+          <Text style={styles.blockIcon}>⚠️</Text>
+          <Text style={styles.blockTitle}>Sin conexión con el servidor</Text>
+          <Text style={styles.blockText}>
+            No pudimos establecer comunicación con el sistema central. Por favor, verifica que tengas acceso a internet e reinicia la aplicación.
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  // Pantalla de carga (Skeleton / Indicador limpio)
+  if (loadingSchema) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={styles.loadingText}>Conectando con el sistema...</Text>
+      </View>
+    );
+  }
+
+  const dividerText = sduiSchema?.dividerText || 'O continúa con';
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       
-      {/* Banner de Mensaje de Red / Sobrecarga */}
-      {networkNotice && (
-        <View style={styles.networkBanner}>
-          <Text style={styles.networkBannerIcon}>⏳</Text>
-          <Text style={styles.networkBannerText}>{networkNotice}</Text>
+      {/* Tarjeta Central */}
+      <View style={styles.authCard}>
+        
+        <View style={styles.logoWrapper}>
+          <CoPilotLogo size={36} />
         </View>
-      )}
 
-      {/* RENDERIZADO: Skeleton si está cargando, o Tarjeta de Autenticación */}
-      {loadingSchema ? (
-        <AuthSkeleton />
-      ) : (
-        <View style={styles.authCard}>
-          
-          {/* Marca CoPilotRD */}
-          <View style={styles.brandRow}>
-            <Text style={styles.brandTitle}>
-              CoPilot<Text style={styles.brandAccent}>RD</Text>
-            </Text>
-            <Text style={styles.brandRegistered}>®</Text>
-          </View>
-
-          <Text style={styles.subtitleText}>
-            {mode === 'LOGIN' ? 'Login or Register' : 'Crear Cuenta de Pasajero'}
+        {/* Marca CoPilotRD */}
+        <View style={styles.brandRow}>
+          <Text style={styles.brandTitle}>
+            CoPilot<Text style={styles.brandAccent}>RD</Text>
           </Text>
-
-          {/* Inputs de Formulario */}
-          <View style={styles.formContainer}>
-            {mode === 'REGISTER' && (
-              <>
-                <View style={styles.inputWrapper}>
-                  <Text style={styles.inputIcon}>👤</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    value={fullName}
-                    onChangeText={setFullName}
-                    placeholder="Nombre y Apellido"
-                    placeholderTextColor="#64748B"
-                    autoCapitalize="words"
-                  />
-                </View>
-
-                <View style={styles.inputWrapper}>
-                  <Text style={styles.inputIcon}>🪪</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    value={documentId}
-                    onChangeText={setDocumentId}
-                    placeholder="Cédula JCE (opcional)"
-                    placeholderTextColor="#64748B"
-                  />
-                </View>
-              </>
-            )}
-
-            <View style={styles.inputWrapper}>
-              <Text style={styles.inputIcon}>✉️</Text>
-              <TextInput
-                style={styles.textInput}
-                value={emailOrPhone}
-                onChangeText={setEmailOrPhone}
-                placeholder="Email o Teléfono Dominicano"
-                placeholderTextColor="#64748B"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-
-            <View style={styles.inputWrapper}>
-              <Text style={styles.inputIcon}>🔒</Text>
-              <TextInput
-                style={styles.textInput}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="Contraseña"
-                placeholderTextColor="#64748B"
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-              />
-              <TouchableOpacity
-                onPress={() => setShowPassword(!showPassword)}
-                style={styles.eyeBtn}
-              >
-                <Text style={styles.eyeIcon}>{showPassword ? '👁️' : '🙈'}</Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity
-              style={[styles.signInBtn, submitting && styles.btnDisabled]}
-              onPress={mode === 'LOGIN' ? handleSubmitLogin : handleSubmitRegister}
-              disabled={submitting}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.signInBtnText}>
-                {submitting ? 'Cargando...' : mode === 'LOGIN' ? 'Sign In' : 'Crear Cuenta'}
-              </Text>
-            </TouchableOpacity>
-
-            {mode === 'LOGIN' && (
-              <TouchableOpacity
-                style={styles.forgotBtn}
-                onPress={() => Alert.alert('Recuperación', 'Instrucciones enviadas a tu teléfono.')}
-              >
-                <Text style={styles.forgotText}>Forgot Password?</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {/* Separador */}
-          <View style={styles.dividerRow}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>{dividerText}</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          {/* Botones Sociales */}
-          <View style={styles.socialButtonsContainer}>
-            <GoogleAuthButton
-              role={role}
-              label="Continue with Google"
-              onSuccess={(res) => {
-                if (res?.user && onAuthSuccess) onAuthSuccess(res.user);
-              }}
-            />
-
-            <TouchableOpacity
-              style={styles.socialBtn}
-              onPress={async () => {
-                const res = await loginWithGoogle('apple.user@copilotrd.com', 'Usuario Apple', role);
-                if (res.success && onAuthSuccess) onAuthSuccess(res.user);
-              }}
-              disabled={submitting}
-              activeOpacity={0.85}
-            >
-              <View style={styles.socialBtnContent}>
-                <Text style={styles.appleIcon}></Text>
-                <Text style={styles.socialBtnText}>Continue with Apple</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          {/* Pie de Alternancia */}
-          <View style={styles.footerRow}>
-            <Text style={styles.footerPrompt}>
-              {mode === 'LOGIN' ? 'New to CoPilotRD? ' : '¿Ya tienes cuenta? '}
-            </Text>
-            <TouchableOpacity
-              onPress={() => {
-                setMode(mode === 'LOGIN' ? 'REGISTER' : 'LOGIN');
-                setNetworkNotice(null);
-              }}
-            >
-              <Text style={styles.footerLinkText}>
-                {mode === 'LOGIN' ? 'Create an account' : 'Inicia Sesión'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
+          <Text style={styles.brandRegistered}>®</Text>
         </View>
-      )}
+
+        <Text style={styles.subtitleText}>
+          {mode === 'LOGIN' ? 'Iniciar Sesión' : 'Crear Cuenta de Pasajero'}
+        </Text>
+
+        {errorMessage && (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorBannerText}>⚠️ {errorMessage}</Text>
+          </View>
+        )}
+
+        {/* Inputs de Formulario */}
+        <View style={styles.formContainer}>
+          {mode === 'REGISTER' && (
+            <>
+              <View style={styles.inputWrapper}>
+                <Text style={styles.inputIcon}>👤</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={fullName}
+                  onChangeText={setFullName}
+                  placeholder="Nombre y Apellido"
+                  placeholderTextColor="#64748B"
+                  autoCapitalize="words"
+                />
+              </View>
+
+              <View style={styles.inputWrapper}>
+                <Text style={styles.inputIcon}>🪪</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={documentId}
+                  onChangeText={setDocumentId}
+                  placeholder="Cédula JCE (opcional)"
+                  placeholderTextColor="#64748B"
+                />
+              </View>
+            </>
+          )}
+
+          <View style={styles.inputWrapper}>
+            <Text style={styles.inputIcon}>✉️</Text>
+            <TextInput
+              style={styles.textInput}
+              value={emailOrPhone}
+              onChangeText={setEmailOrPhone}
+              placeholder="Correo o Teléfono"
+              placeholderTextColor="#64748B"
+              keyboardPosition="below"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+
+          <View style={styles.inputWrapper}>
+            <Text style={styles.inputIcon}>🔒</Text>
+            <TextInput
+              style={styles.textInput}
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Contraseña"
+              placeholderTextColor="#64748B"
+              secureTextEntry={!showPassword}
+              autoCapitalize="none"
+            />
+            <TouchableOpacity
+              onPress={() => setShowPassword(!showPassword)}
+              style={styles.eyeBtn}
+            >
+              <Text style={styles.eyeIcon}>{showPassword ? '👁️' : '🙈'}</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.signInBtn, submitting && styles.btnDisabled]}
+            onPress={mode === 'LOGIN' ? handleSubmitLogin : handleSubmitRegister}
+            disabled={submitting}
+            activeOpacity={0.85}
+          >
+            {submitting ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Text style={styles.signInBtnText}>
+                {mode === 'LOGIN' ? 'Entrar' : 'Registrarse'}
+              </Text>
+            )}
+          </TouchableOpacity>
+
+          {mode === 'LOGIN' && (
+            <TouchableOpacity
+              style={styles.forgotBtn}
+              onPress={() => Alert.alert('Recuperación', 'Te hemos enviado instrucciones a tu medio de contacto.')}
+            >
+              <Text style={styles.forgotText}>¿Olvidaste tu contraseña?</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Separador */}
+        <View style={styles.dividerRow}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerText}>{dividerText}</Text>
+          <View style={styles.dividerLine} />
+        </View>
+
+        {/* Botones Sociales */}
+        <View style={styles.socialButtonsContainer}>
+          <GoogleAuthButton
+            role={role}
+            label="Continuar con Google"
+            onSuccess={(res) => {
+              if (res?.user && onAuthSuccess) onAuthSuccess(res.user);
+            }}
+          />
+
+          <TouchableOpacity
+            style={styles.socialBtn}
+            onPress={async () => {
+              const res = await loginWithGoogle('apple.user@copilotrd.com', 'Usuario Apple', role);
+              if (res.success && onAuthSuccess) onAuthSuccess(res.user);
+            }}
+            disabled={submitting}
+            activeOpacity={0.85}
+          >
+            <View style={styles.socialBtnContent}>
+              <Text style={styles.appleIcon}></Text>
+              <Text style={styles.socialBtnText}>Continuar con Apple</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* Pie de Alternancia */}
+        <View style={styles.footerRow}>
+          <Text style={styles.footerPrompt}>
+            {mode === 'LOGIN' ? '¿Nuevo en CoPilotRD? ' : '¿Ya tienes cuenta? '}
+          </Text>
+          <TouchableOpacity
+            onPress={() => {
+              setMode(mode === 'LOGIN' ? 'REGISTER' : 'LOGIN');
+              setErrorMessage(null);
+            }}
+          >
+            <Text style={styles.footerLinkText}>
+              {mode === 'LOGIN' ? 'Crea una cuenta' : 'Inicia Sesión'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+      </View>
     </ScrollView>
   );
 }
@@ -335,69 +311,82 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   content: {
-    paddingVertical: 40,
-    paddingHorizontal: 20,
+    paddingVertical: 32,
+    paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: '100%',
   },
-  networkBanner: {
-    width: '100%',
-    maxWidth: 400,
-    backgroundColor: '#1E1B4B',
-    borderWidth: 1,
-    borderColor: '#6366F1',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  networkBannerIcon: { fontSize: 16 },
-  networkBannerText: {
-    color: '#E0E7FF',
-    fontSize: 12,
-    fontWeight: '600',
+  loadingContainer: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000000',
   },
+  loadingText: { marginTop: 12, color: '#94A3B8', fontSize: 13 },
+  blockContainer: {
+    flex: 1,
+    backgroundColor: '#000000',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  blockCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: '#0E121B',
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#DC2626',
+    alignItems: 'center',
+  },
+  blockIcon: { fontSize: 32, marginBottom: 12 },
+  blockTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF', marginBottom: 8, textAlign: 'center' },
+  blockText: { fontSize: 13, color: '#94A3B8', textAlign: 'center', lineHeight: 18 },
   authCard: {
     width: '100%',
-    maxWidth: 400,
+    maxWidth: 380,
     backgroundColor: '#0E121B',
     borderRadius: 24,
-    paddingHorizontal: 26,
-    paddingVertical: 32,
+    paddingHorizontal: 22,
+    paddingVertical: 28,
     borderWidth: 1,
     borderColor: '#1A2133',
     alignItems: 'center',
   },
-  skeletonBlock: {
-    backgroundColor: '#1A2133',
-    borderRadius: 8,
-  },
+  logoWrapper: { marginBottom: 8 },
   brandRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'center',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   brandTitle: {
-    fontSize: 32,
+    fontSize: 26,
     fontWeight: '800',
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
   brandAccent: { color: '#94A3B8' },
-  brandRegistered: { fontSize: 13, color: '#94A3B8', marginLeft: 4, marginTop: 3 },
+  brandRegistered: { fontSize: 11, color: '#94A3B8', marginLeft: 3, marginTop: 2 },
   subtitleText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
     color: '#E2E8F0',
-    marginBottom: 20,
+    marginBottom: 16,
   },
-  formContainer: { width: '100%', marginBottom: 12 },
+  errorBanner: {
+    width: '100%',
+    backgroundColor: '#450A0A',
+    borderWidth: 1,
+    borderColor: '#DC2626',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 14,
+  },
+  errorBannerText: { color: '#FCA5A5', fontSize: 12, textAlign: 'center' },
+  formContainer: { width: '100%', marginBottom: 10 },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -405,53 +394,53 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: '#222B40',
-    marginBottom: 14,
-    paddingHorizontal: 16,
-    height: 52,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    height: 48,
   },
-  inputIcon: { fontSize: 16, marginRight: 12 },
-  textInput: { flex: 1, color: '#FFFFFF', fontSize: 15 },
+  inputIcon: { fontSize: 15, marginRight: 10 },
+  textInput: { flex: 1, color: '#FFFFFF', fontSize: 14 },
   eyeBtn: { padding: 6 },
-  eyeIcon: { fontSize: 16 },
+  eyeIcon: { fontSize: 15 },
   signInBtn: {
     backgroundColor: '#007AFF',
-    height: 52,
+    height: 48,
     borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 6,
+    marginTop: 4,
   },
-  signInBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  signInBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   btnDisabled: { opacity: 0.65 },
-  forgotBtn: { marginTop: 14, alignItems: 'center' },
-  forgotText: { color: '#64748B', fontSize: 13 },
+  forgotBtn: { marginTop: 12, alignItems: 'center' },
+  forgotText: { color: '#64748B', fontSize: 12 },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
-    marginVertical: 16,
+    marginVertical: 14,
   },
   dividerLine: { flex: 1, height: 1, backgroundColor: '#1E2538' },
-  dividerText: { color: '#64748B', fontSize: 13, marginHorizontal: 12 },
-  socialButtonsContainer: { width: '100%', gap: 12 },
+  dividerText: { color: '#64748B', fontSize: 12, marginHorizontal: 10 },
+  socialButtonsContainer: { width: '100%', gap: 10 },
   socialBtn: {
     backgroundColor: '#FFFFFF',
-    height: 52,
+    height: 48,
     borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  socialBtnContent: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  appleIcon: { fontSize: 20, color: '#000000', marginBottom: 2 },
-  socialBtnText: { color: '#000000', fontSize: 15, fontWeight: '600' },
+  socialBtnContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  appleIcon: { fontSize: 18, color: '#000000', marginBottom: 2 },
+  socialBtnText: { color: '#000000', fontSize: 14, fontWeight: '600' },
   footerRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 18,
+    marginTop: 16,
   },
-  footerPrompt: { color: '#64748B', fontSize: 13 },
-  footerLinkText: { color: '#007AFF', fontSize: 13, fontWeight: '700' },
+  footerPrompt: { color: '#64748B', fontSize: 12 },
+  footerLinkText: { color: '#007AFF', fontSize: 12, fontWeight: '700' },
 });

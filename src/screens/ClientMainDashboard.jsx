@@ -13,11 +13,11 @@ import {
   Animated,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
-import { requestTrip, getDeviceSecurityInfo } from '../services/mobileApi';
+import { requestTrip } from '../services/mobileApi';
 import CoPilotClientMap from '../components/CoPilotClientMap';
 import ClientBottomNav from '../components/ClientBottomNav';
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
 function CardSkeleton() {
   const opacity = useRef(new Animated.Value(0.3)).current;
@@ -48,17 +48,13 @@ function CardSkeleton() {
 export default function ClientMainDashboard({ onOpenSduiConfig }) {
   const { user, logout } = useAuth();
 
-  // Módulo activo de la barra de navegación inferior ('HOME' | 'NOTIFICATIONS' | 'WALLET' | 'PROFILE')
   const [activeModule, setActiveModule] = useState('HOME');
-
-  // Estados de Ruta y Viaje
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
   const [stops, setStops] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('Clásico');
   const [isFavoriteDriver, setIsFavoriteDriver] = useState(false);
   const [tipAmount, setTipAmount] = useState(100);
-
   const [currentStep, setCurrentStep] = useState(1);
   const [isCardCollapsed, setIsCardCollapsed] = useState(false);
   const [calculatingFare, setCalculatingFare] = useState(false);
@@ -164,16 +160,15 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
 
   return (
     <View style={styles.mainContainer}>
-      
       {/* 1. MÓDULO INICIO: MAPA Y TARJETA DE VIAJE */}
       {activeModule === 'HOME' && (
-        <>
-          {/* Fondo del Mapa Limpio */}
+        <View style={styles.homeTabContainer}>
+          {/* Capa de Mapa en Fondo Absoluto con dimensiones explícitas */}
           <View style={styles.mapBackgroundContainer}>
-            <CoPilotClientMap />
+            <CoPilotClientMap isExpanded={true} />
           </View>
 
-          {/* Tarjeta Dinámica Flotante (Bottom Sheet) */}
+          {/* Tarjeta Flotante Bottom Sheet */}
           <View style={[styles.bottomSheetCard, isCardCollapsed && styles.bottomSheetCardCollapsed]}>
             <TouchableOpacity
               style={styles.dragHandleContainer}
@@ -188,7 +183,7 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.cardContent}
               >
-                {/* Ruta Unificada (Punto de partida + Paradas + Destino) */}
+                {/* Ruta Unificada */}
                 <View style={styles.routeUnifiedCard}>
                   <View style={styles.inputRowContainer}>
                     <Text style={styles.inputIconGreen}>🟢</Text>
@@ -398,7 +393,7 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
               </ScrollView>
             )}
           </View>
-        </>
+        </View>
       )}
 
       {/* 2. MÓDULO NOTIFICACIONES */}
@@ -469,26 +464,41 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
 }
 
 const styles = StyleSheet.create({
-  mainContainer: { flex: 1, backgroundColor: '#000000' },
-  mapBackgroundContainer: { ...StyleSheet.absoluteFillObject, zIndex: 1 },
+  mainContainer: { 
+    flex: 1, 
+    backgroundColor: '#0A0E1A' 
+  },
+  homeTabContainer: {
+    flex: 1,
+    position: 'relative',
+    backgroundColor: '#0A0E1A'
+  },
+  mapBackgroundContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
+    zIndex: 1,
+  },
   bottomSheetCard: {
     position: 'absolute',
-    bottom: 64,
+    bottom: 60,
     left: 0,
     right: 0,
-    maxHeight: SCREEN_HEIGHT * 0.68,
+    maxHeight: SCREEN_HEIGHT * 0.60,
     backgroundColor: '#0E121B',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     borderWidth: 1,
     borderColor: '#1A2133',
-    zIndex: 20,
-    paddingBottom: 20,
+    zIndex: 10,
+    paddingBottom: 15,
   },
-  bottomSheetCardCollapsed: { maxHeight: 40 },
+  bottomSheetCardCollapsed: { maxHeight: 42 },
   dragHandleContainer: { width: '100%', paddingVertical: 10, alignItems: 'center' },
   dragHandle: { width: 40, height: 5, borderRadius: 3, backgroundColor: '#334155' },
-  cardContent: { paddingHorizontal: 16, paddingBottom: 20 },
+  cardContent: { paddingHorizontal: 16, paddingBottom: 15 },
   routeUnifiedCard: {
     backgroundColor: '#151A27',
     borderRadius: 18,
