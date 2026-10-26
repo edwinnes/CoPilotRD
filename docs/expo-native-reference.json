@@ -1,0 +1,13 @@
+{
+  "source": "edwinnes/CoPilotRD@7fe70fe3a1b87e0182cc3265196fe5e8fd640c26:node_modules/expo/bundledNativeModules.json",
+  "versions": {
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "react-native-maps": "1.27.2",
+    "react-native-svg": "15.15.4",
+    "expo-secure-store": "~57.0.4",
+    "expo-location": "~57.0.21",
+    "expo-status-bar": "~57.0.1"
+  }
+}

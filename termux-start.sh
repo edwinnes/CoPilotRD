@@ -19,7 +19,7 @@ echo "✅ Node.js detectado: $NODE_VERSION"
 # 2. Instalar dependencias si no existen
 if [ ! -d "node_modules" ]; then
     echo "📦 Instalando dependencias de Expo React Native (npm install)..."
-    npm install --legacy-peer-deps
+    npm ci
 fi
 
 # 3. Opciones de red para Termux

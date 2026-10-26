@@ -1,0 +1,5 @@
+
+> nosotrosrd-mobile@1.0.0 security:scan
+> node scripts/security-scan.mjs
+
+PASS: 30 application/config files; 7 focused security rules. This is not a dependency/CVE audit.

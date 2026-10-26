@@ -13,13 +13,15 @@ import { fetchAuthSdui } from '../services/mobileApi';
 import { useAuth } from '../context/AuthContext';
 import GoogleAuthButton from '../components/GoogleAuthButton';
 import CoPilotLogo from '../components/CoPilotLogo';
+import SettingsScreen from './SettingsScreen';
 
 /**
  * Pantalla de Autenticación SDUI (Cliente) - CoPilotRD
  * Interfaz estricta conectada a Cloud Run sin fallbacks locales.
  */
 export default function AuthSduiScreen({ onAuthSuccess }) {
-  const { login, register, loginWithGoogle } = useAuth();
+  const { login, register } = useAuth();
+  const [showSettings, setShowSettings] = useState(false);
 
   const role = 'CLIENT';
   const [sduiSchema, setSduiSchema] = useState(null);
@@ -111,16 +113,19 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
     }
   };
 
+  if (showSettings) return <SettingsScreen onClose={() => setShowSettings(false)} />;
+
   // Pantalla de bloqueo si hay error de conexión con el servidor (sin fallbacks)
   if (connectionError) {
     return (
       <View style={styles.blockContainer}>
         <View style={styles.blockCard}>
           <Text style={styles.blockIcon}>⚠️</Text>
-          <Text style={styles.blockTitle}>Sin conexión con el servidor</Text>
+          <Text style={styles.blockTitle}>Acceso no disponible</Text>
           <Text style={styles.blockText}>
-            No pudimos establecer comunicación con el sistema central. Por favor, verifica que tengas acceso a internet e reinicia la aplicación.
+            El servicio de autenticación aún no tiene una integración verificada. No es posible iniciar sesión ni crear cuentas desde esta versión.
           </Text>
+          <TouchableOpacity onPress={() => setShowSettings(true)}><Text style={styles.blockText}>Abrir seguridad, privacidad y ajustes</Text></TouchableOpacity>
         </View>
       </View>
     );
@@ -141,6 +146,7 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       
+      <TouchableOpacity onPress={() => setShowSettings(true)}><Text style={styles.forgotText}>Seguridad, privacidad y ajustes</Text></TouchableOpacity>
       {/* Tarjeta Central */}
       <View style={styles.authCard}>
         
@@ -246,7 +252,7 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
           {mode === 'LOGIN' && (
             <TouchableOpacity
               style={styles.forgotBtn}
-              onPress={() => Alert.alert('Recuperación', 'Te hemos enviado instrucciones a tu medio de contacto.')}
+              onPress={() => Alert.alert('Recuperación no disponible', 'Falta integrar la verificación de correo o SMS. No se han enviado instrucciones.')}
             >
               <Text style={styles.forgotText}>¿Olvidaste tu contraseña?</Text>
             </TouchableOpacity>
@@ -272,10 +278,7 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
 
           <TouchableOpacity
             style={styles.socialBtn}
-            onPress={async () => {
-              const res = await loginWithGoogle('apple.user@copilotrd.com', 'Usuario Apple', role);
-              if (res.success && onAuthSuccess) onAuthSuccess(res.user);
-            }}
+            onPress={() => Alert.alert('Apple no disponible', 'Falta integrar Sign in with Apple y la verificación del servidor.')}
             disabled={submitting}
             activeOpacity={0.85}
           >

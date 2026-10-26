@@ -2,10 +2,9 @@
   "appName": "CoPilotRD Pasajeros",
   "version": "2.4.0",
   "backend": {
-    "cloudRunUrl": "https://nosotrosrd-backend-810002215622.us-east1.run.app",
-    "baseApiUrl": "https://nosotrosrd-backend-810002215622.us-east1.run.app/api/v1",
-    "webSocketUrl": "https://nosotrosrd-backend-810002215622.us-east1.run.app/api/v1/trips/stream",
-    "timeoutMs": 15000
+    "configuration": "EXPO_PUBLIC_API_URL",
+    "timeoutMs": 15000,
+    "contractVerified": false
   },
   "auth": {
     "endpoints": {
@@ -25,11 +24,6 @@
       "sduiRidePlanner": "/api/v1/sdui/config?mode=ride"
     },
     "currency": "DOP",
-    "country": "DO",
-    "categories": [
-      { "id": "Clasico", "label": "Clásico", "baseFareDOP": 290 },
-      { "id": "Confort", "label": "Confort", "baseFareDOP": 410 },
-      { "id": "XL", "label": "CoPilot XL", "baseFareDOP": 580 }
-    ]
+    "country": "DO"
   }
 }
