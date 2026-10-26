@@ -14,11 +14,8 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.nosotrosrd.copilotrd.client",
-      "config": {
-        "googleMapsApiKey": "AIzaSyDUFeHdnpJj26VCQCfH0Y-XfhAtpNpLNZ8"
-      },
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "NosotrosRD requiere acceso a tu ubicación para calcular rutas y despachar la unidad más cercana."
+        "NSLocationWhenInUseUsageDescription": "NosotrosRD requiere acceso a tu ubicaci\u00f3n para calcular rutas y despachar la unidad m\u00e1s cercana."
       }
     },
     "android": {
@@ -27,27 +24,15 @@
         "foregroundImage": "./assets/logo.png",
         "backgroundColor": "#000000"
       },
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyDUFeHdnpJj26VCQCfH0Y-XfhAtpNpLNZ8"
-        }
-      },
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION"
       ]
     },
     "scheme": "copilotrd",
-    "extra": {
-      "cloudRunApiUrl": "https://nosotrosrd-backend-589218004938.us-east1.run.app",
-      "version": "2.4.0",
-      "environment": "production"
-    },
     "sdkVersion": "57.0.0",
-    "newArchEnabled": false,
     "plugins": [
-      "expo-secure-store",
-      "expo-status-bar"
+      "expo-secure-store"
     ]
   }
 }

@@ -1,0 +1,5 @@
+
+> nosotrosrd-mobile@1.0.0 check:syntax
+> node scripts/check-syntax.cjs
+
+PASS: syntax parsed and relative imports resolved for 35 files. Not an Expo bundle or native build.

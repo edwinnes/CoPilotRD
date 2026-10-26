@@ -1,91 +1,63 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { AppState } from 'react-native';
+import { createSessionController } from '../security/sessionCore.mjs';
+import { getAuthSession, saveAuthSession, clearAuthSession, purgeLegacyAuth } from '../services/authStorage';
+import { authAdapter } from '../services/authAdapter';
+import { eventManager } from '../services/eventManager';
+import { loginSchema, registrationSchema, validateInput } from '../security/schemas';
 
-const AuthContext = createContext({});
+const AuthContext = createContext(null);
+let activeController = null;
+export const getAccessToken = () => activeController?.getToken() || null;
+export const expireSession = () => activeController?.logout();
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-
+  const [storageError, setStorageError] = useState(null);
+  const [controller] = useState(() => createSessionController({
+    storage: { read: getAuthSession, write: saveAuthSession, clear: clearAuthSession },
+    verifySession: authAdapter.verifySession,
+    onChange(session) { setUser(session?.user || null); eventManager.emit('session:changed'); },
+  }));
   useEffect(() => {
-    loadStoredSession();
-  }, []);
-
-  const loadStoredSession = async () => {
+    let mounted = true;
+    activeController = controller;
+    (async () => {
+      try { await purgeLegacyAuth(); await controller.restore(); }
+      catch { if (mounted) setStorageError('No se pudo limpiar el almacenamiento anterior.'); }
+      finally { if (mounted) setLoading(false); }
+    })();
+    // Lock as soon as the app leaves the foreground. No implicit biometric unlock.
+    const sub = AppState.addEventListener('change', state => {
+      if (state !== 'active') void controller.logout().catch(() => {
+        if (mounted) setStorageError('No se pudo eliminar la sesión del dispositivo.');
+      });
+    });
+    const timer = setInterval(() => controller.getToken(), 1000);
+    return () => {
+      mounted = false; sub.remove(); clearInterval(timer);
+      if (activeController === controller) activeController = null;
+    };
+  }, [controller]);
+  const run = async action => {
+    if (loading || storageError) return { success: false, message: storageError || 'Inicializando sesión.' };
     try {
-      console.log('[AuthContext] Verificando sesión almacenada...');
-      const storedUser = await AsyncStorage.getItem('@copilot_user');
-      if (storedUser) {
-        console.log('[AuthContext] Sesión encontrada:', JSON.parse(storedUser));
-        setUser(JSON.parse(storedUser));
-      } else {
-        console.log('[AuthContext] No hay sesión previa guardada.');
-      }
-    } catch (error) {
-      console.warn('[AuthContext] Error al leer AsyncStorage:', error);
-    } finally {
-      setLoading(false);
-    }
+      const result = await controller.authenticate(action);
+      return { success: true, user: result.user };
+    } catch (error) { return { success: false, message: error.message }; }
   };
-
-  const login = async (emailOrPhone, password) => {
-    try {
-      console.log('[AuthContext] Intentando iniciar sesión para:', emailOrPhone);
-      // Simulación de validación de backend / seguridad con clave maestra (ej: 'diosamor')
-      if (password === 'diosamor' || password === '123456' || emailOrPhone) {
-        const loggedUser = {
-          id: 'usr-' + Date.now(),
-          fullName: 'Socio / Usuario Autorizado',
-          email: emailOrPhone,
-          role: 'CLIENT',
-        };
-        setUser(loggedUser);
-        await AsyncStorage.setItem('@copilot_user', JSON.stringify(loggedUser));
-        console.log('[AuthContext] Inicio de sesión exitoso.');
-        return { success: true, user: loggedUser };
-      } else {
-        return { success: false, message: 'Credenciales inválidas o contraseña incorrecta.' };
-      }
-    } catch (error) {
-      console.warn('[AuthContext] Error en login:', error);
-      return { success: false, message: 'Error interno en el servidor.' };
-    }
-  };
-
-  const register = async (userData) => {
-    try {
-      console.log('[AuthContext] Registrando nuevo usuario:', userData);
-      const newUser = {
-        id: 'usr-' + Date.now(),
-        fullName: userData.fullName,
-        email: userData.phone,
-        role: 'CLIENT',
-      };
-      setUser(newUser);
-      await AsyncStorage.setItem('@copilot_user', JSON.stringify(newUser));
-      console.log('[AuthContext] Registro y sesión exitosos.');
-      return { success: true, user: newUser };
-    } catch (error) {
-      console.warn('[AuthContext] Error en registro:', error);
-      return { success: false, message: 'Error al registrar usuario.' };
-    }
-  };
-
-  const logout = async () => {
-    try {
-      setUser(null);
-      await AsyncStorage.removeItem('@copilot_user');
-      console.log('[AuthContext] Sesión cerrada.');
-    } catch (error) {
-      console.warn('[AuthContext] Error al cerrar sesión:', error);
-    }
-  };
-
-  return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={{ user, loading, storageError,
+    login: (identifier, password) => run(() => authAdapter.login(validateInput(loginSchema, { identifier, password }))),
+    register: data => run(() => authAdapter.register(validateInput(registrationSchema, data))),
+    logout: async () => {
+      try { await controller.logout(); }
+      catch { setStorageError('No se pudo eliminar la sesión del dispositivo.'); }
+    },
+  }}>{children}</AuthContext.Provider>;
 }
-
-export const useAuth = () => useContext(AuthContext);
+export function useAuth() {
+  const value = useContext(AuthContext);
+  if (!value) throw new Error('useAuth requiere AuthProvider.');
+  return value;
+}

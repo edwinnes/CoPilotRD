@@ -11,11 +11,14 @@ import {
   Alert,
   Dimensions,
   Animated,
+  Linking,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { requestTrip } from '../services/mobileApi';
 import CoPilotClientMap from '../components/CoPilotClientMap';
 import ClientBottomNav from '../components/ClientBottomNav';
+import SettingsScreen from './SettingsScreen';
+import { useCurrentLocation } from '../hooks/useCurrentLocation';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -47,6 +50,7 @@ function CardSkeleton() {
 
 export default function ClientMainDashboard({ onOpenSduiConfig }) {
   const { user, logout } = useAuth();
+  const gps = useCurrentLocation();
 
   const [activeModule, setActiveModule] = useState('HOME');
   const [origin, setOrigin] = useState('');
@@ -62,10 +66,9 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
   const [tripResult, setTripResult] = useState(null);
   const [validationError, setValidationError] = useState(null);
 
-  const clientName = user?.fullName || 'María Elena Ventura';
-  const clientEmail = user?.email || 'pasajero.nosotrosrd@gmail.com';
-  const clientPhone = user?.phone || '+1 809-555-0142';
-  const kmBalance = user?.kmBank || 25;
+  const clientName = user?.fullName || 'Usuario';
+  const clientEmail = user?.email || 'Correo no disponible';
+  const clientPhone = user?.phone || 'Teléfono no disponible';
 
   const quickDestinations = [
     { label: 'Aeropuerto AILA', address: 'Aeropuerto Int. Las Américas (AILA)' },
@@ -75,14 +78,16 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
   ];
 
   const categories = [
-    { id: 'Clásico', name: 'Clásico', price: 290, desc: 'Económico y rápido' },
-    { id: 'Estándar', name: 'Estándar', price: 350, desc: 'Confort con A/C' },
-    { id: 'Premium', name: 'Premium', price: 480, desc: 'Sedán Ejecutivo' },
-    { id: 'Elite', name: 'Elite', price: 650, desc: 'Vehículo de lujo' },
+    { id: 'Clásico', name: 'Clásico', desc: 'Económico y rápido' },
+    { id: 'Estándar', name: 'Estándar', desc: 'Confort con A/C' },
+    { id: 'Premium', name: 'Premium', desc: 'Sedán Ejecutivo' },
+    { id: 'Elite', name: 'Elite', desc: 'Vehículo de lujo' },
   ];
 
-  const handleUseCurrentLocation = () => {
-    setOrigin('Mi Ubicación Actual (GPS Centralizado)');
+  const handleUseCurrentLocation = async () => {
+    const coords = await gps.request();
+    if (coords) setOrigin(`${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}`);
+    else Alert.alert('GPS', 'No se pudo obtener tu ubicación. Comprueba los permisos y el GPS.');
   };
 
   const handleAddStop = () => {
@@ -108,14 +113,11 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
       Alert.alert('Ingresa la ruta', 'Debes especificar punto de partida y destino.');
       return;
     }
-    setCalculatingFare(true);
-    setCurrentStep(2);
-    setTimeout(() => {
-      setCalculatingFare(false);
-    }, 800);
+    Alert.alert('Cotización no disponible', 'Falta integrar tarifas y despacho verificados del servidor. No se ha solicitado un viaje.');
   };
 
   const handleRequestTrip = async () => {
+    if (loading) return;
     setLoading(true);
     setValidationError(null);
     setTripResult(null);
@@ -126,13 +128,8 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
         destinationAddress: destination,
         stops,
         category: selectedCategory,
-        distanceKm: 28.5,
-        durationMinutes: 35,
         isFavoriteDriver,
         favoriteTipDOP: isFavoriteDriver ? tipAmount : 0,
-        clientId: user?.id || 'cli-01',
-        clientName,
-        clientPhone,
       });
 
       if (response?.success && response?.trip) {
@@ -157,6 +154,10 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
       ]
     );
   };
+
+  if (activeModule === 'SETTINGS' || activeModule === 'SECURITY') {
+    return <SettingsScreen onClose={() => setActiveModule('HOME')} />;
+  }
 
   return (
     <View style={styles.mainContainer}>
@@ -300,7 +301,7 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
                               >
                                 {cat.name}
                               </Text>
-                              <Text style={styles.categoryPrice}>RD$ {cat.price}</Text>
+                              <Text style={styles.categoryPrice}>Tarifa no disponible</Text>
                               <Text style={styles.categoryDesc}>{cat.desc}</Text>
                             </TouchableOpacity>
                           ))}
@@ -384,7 +385,7 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
                         <Text style={styles.resultTitle}>¡Viaje Despachado con Éxito!</Text>
                         <Text style={styles.resultText}>Código: {tripResult.code}</Text>
                         <Text style={styles.resultText}>
-                          Tarifa: RD$ {tripResult.fare?.totalFare || '350'}
+                          Tarifa: RD$ {tripResult.fare?.totalFare ?? 'No disponible'}
                         </Text>
                       </View>
                     )}
@@ -400,16 +401,7 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
       {activeModule === 'NOTIFICATIONS' && (
         <ScrollView style={styles.moduleContainer} contentContainerStyle={styles.moduleContent}>
           <Text style={styles.moduleHeaderTitle}>🔔 Notificaciones</Text>
-          <View style={styles.notifCard}>
-            <Text style={styles.notifTitle}>¡Bienvenido a CoPilotRD!</Text>
-            <Text style={styles.notifDesc}>Tu cuenta ha sido vinculada exitosamente con el sistema JCE y Cloud Run.</Text>
-            <Text style={styles.notifTime}>Hace 5 minutos</Text>
-          </View>
-          <View style={styles.notifCard}>
-            <Text style={styles.notifTitle}>Tarifa Preferencial Activa</Text>
-            <Text style={styles.notifDesc}>Disfrutas de un descuento especial por ser usuario fundador.</Text>
-            <Text style={styles.notifTime}>Ayer</Text>
-          </View>
+          <Text style={styles.notifDesc}>No hay un servicio de notificaciones integrado. No se muestran mensajes ficticios.</Text>
         </ScrollView>
       )}
 
@@ -417,21 +409,7 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
       {activeModule === 'WALLET' && (
         <ScrollView style={styles.moduleContainer} contentContainerStyle={styles.moduleContent}>
           <Text style={styles.moduleHeaderTitle}>💳 Billetera & Banco KM</Text>
-          <View style={styles.kmBankCard}>
-            <Text style={styles.kmBankTitle}>Banco de Kilómetros</Text>
-            <Text style={styles.kmBankSubtitle}>Acumulas 1 KM por cada RD$ 100 en viajes.</Text>
-            <View style={styles.kmBalanceBox}>
-              <Text style={styles.kmBalanceNumber}>{kmBalance}</Text>
-              <Text style={styles.kmBalanceUnit}>KM DISPONIBLES</Text>
-            </View>
-          </View>
-          <View style={styles.walletActionCard}>
-            <Text style={styles.sectionTitle}>Métodos de Pago</Text>
-            <Text style={styles.walletItem}>💳 •••• 4092 (Predeterminada)</Text>
-            <TouchableOpacity style={styles.addPaymentBtn}>
-              <Text style={styles.addPaymentText}>+ Agregar Tarjeta</Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={styles.notifDesc}>Saldo y métodos de pago no disponibles. Falta integrar un servicio financiero verificado. Los pagos y canjes están deshabilitados.</Text>
         </ScrollView>
       )}
 
@@ -447,7 +425,7 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
             <Text style={styles.profileEmail}>{clientEmail}</Text>
             <Text style={styles.profilePhone}>{clientPhone}</Text>
             <View style={styles.verifiedBadgeRow}>
-              <Text style={styles.verifiedBadgeText}>✓ Identidad Verificada por JCE</Text>
+              <Text style={styles.verifiedBadgeText}>Estado de verificación no disponible</Text>
             </View>
           </View>
 
@@ -457,6 +435,26 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
         </ScrollView>
       )}
 
+      {['TRIPS_HISTORY', 'KM_CLUB', 'SUPPORT'].includes(activeModule) && (
+        <View style={styles.moduleContainer}>
+          <Text style={styles.moduleHeaderTitle}>{activeModule === 'SUPPORT' ? 'Soporte técnico' : 'Servicio no disponible'}</Text>
+          <Text style={styles.notifDesc}>No hay integración verificada para este servicio.</Text>
+          {activeModule === 'SUPPORT' && <TouchableOpacity style={styles.primaryBtn} onPress={async () => {
+            const email = process.env.EXPO_PUBLIC_SUPPORT_EMAIL || '';
+            if (!/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email)) {
+              Alert.alert('Soporte no disponible', 'No hay un canal de soporte configurado.'); return;
+            }
+            try { await Linking.openURL(`mailto:${email}`); }
+            catch { Alert.alert('Soporte', 'No se pudo abrir el correo.'); }
+          }}><Text style={styles.primaryBtnText}>Abrir correo de soporte</Text></TouchableOpacity>}
+        </View>
+      )}
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel="SOS: abrir el marcador para llamar al 911"
+        style={{ position: 'absolute', top: 76, right: 16, padding: 12, backgroundColor: '#B91C1C', zIndex: 91 }}
+        onPress={() => Alert.alert('Emergencia', 'Se abrirá el marcador para llamar al 911. No se envía una alerta a CoPilotRD ni tu ubicación.', [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Abrir marcador', onPress: () => { void Linking.openURL('tel:911').catch(() => Alert.alert('Emergencia', 'No se pudo abrir el marcador. Llama al 911 manualmente.')); } },
+        ])}><Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>SOS · 911</Text></TouchableOpacity>
       {/* BARRA SUPERIOR E INFERIOR INTEGRADAS */}
       <ClientBottomNav activeTab={activeModule} onChangeTab={setActiveModule} />
     </View>

@@ -1,0 +1,37 @@
+
+> nosotrosrd-mobile@1.0.0 test
+> node --test --test-reporter=spec --test-isolation=none tests/*.test.mjs
+
+✔ API has no HTTP, embedded credentials, path, query or fragment destinations (2.173722ms)
+✔ API refuses absolute, scheme-relative, backslash and whitespace destinations (0.319348ms)
+✔ unsubscribe removes observers and exceptions cannot interrupt logout (0.261141ms)
+✔ rejects arbitrary event names (1.525ms)
+✔ rejects profile-only sessions, malformed tokens, expired sessions and invalid expiry (0.617873ms)
+✔ publishes only after successful secure persistence (1.19952ms)
+✔ does not authenticate after server denial (0.285709ms)
+✔ fails closed when secure write fails (0.409607ms)
+✔ logout cancels an in-flight login response (0.672551ms)
+✔ logout waits behind an in-flight write and removes its result (0.839725ms)
+✔ stale first login cannot replace a newer login (0.30841ms)
+✔ cached session requires verification by server (0.205514ms)
+✔ failed revalidation deletes cache and keeps navigation locked (0.293062ms)
+✔ unverified profiles are cleared rather than trusted (0.156305ms)
+✔ late restore cannot resurrect a logged-out session (0.185975ms)
+✔ expiration clears auth in memory immediately (0.163969ms)
+✔ logout stays locked and reports secure deletion failure (0.379448ms)
+✔ session expiring during secure write is deleted and never published (0.233498ms)
+✔ native credentials are stored only in SecureStore (2.935805ms)
+✔ secure write failure is returned with no plaintext fallback (0.908526ms)
+✔ unavailable secure storage cannot report successful native persistence (1.073134ms)
+✔ logout tombstone prevents restoring tokens when secure deletion fails (1.247279ms)
+✔ logout removes legacy data and current secure credentials (1.380639ms)
+✔ web sessions persist only within the module memory and clear on logout (7.177143ms)
+✔ malformed secure session cannot restore authentication (1.580736ms)
+ℹ tests 25
+ℹ suites 0
+ℹ pass 25
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 58.575944

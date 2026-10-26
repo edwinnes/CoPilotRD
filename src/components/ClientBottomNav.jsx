@@ -17,7 +17,8 @@ export default function ClientBottomNav({ activeTab, onChangeTab, onOpenSettings
   const menuCategories = [
     { id: 'TRIPS_HISTORY', label: 'Historial de Viajes', icon: '📋' },
     { id: 'KM_CLUB', label: 'Club de Socios & KM', icon: '🌟' },
-    { id: 'SECURITY', label: 'Seguridad & JCE', icon: '🛡️' },
+    { id: 'SECURITY', label: 'Seguridad y Privacidad', icon: '🛡️' },
+    { id: 'SUPPORT', label: 'Soporte técnico', icon: '💬' },
     { id: 'SETTINGS', label: 'Ajustes del Sistema', icon: '⚙️' },
   ];
 
@@ -71,9 +72,8 @@ export default function ClientBottomNav({ activeTab, onChangeTab, onOpenSettings
                   style={styles.drawerItem}
                   onPress={() => {
                     setMenuVisible(false);
-                    if (cat.id === 'SETTINGS' && onOpenSettings) {
-                      onOpenSettings();
-                    }
+                    if (cat.id === 'SETTINGS' && onOpenSettings) onOpenSettings();
+                    else onChangeTab(cat.id);
                   }}
                 >
                   <Text style={styles.drawerItemIcon}>{cat.icon}</Text>

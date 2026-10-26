@@ -1,180 +1,48 @@
 import { Platform } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { assertSession } from '../security/sessionCore.mjs';
 
-const STORAGE_KEYS = {
-  TOKEN: 'nosotrosrd_auth_jwt_token',
-  USER: 'nosotrosrd_auth_user_data',
-};
+const KEY = 'copilot_session_v2';
+const DISABLED_KEY = 'copilot_session_disabled_v2';
+const LEGACY_KEYS = ['@copilot_user', '@copilot_token',
+  'nosotrosrd_auth_jwt_token', 'nosotrosrd_auth_user_data'];
+const OPTIONS = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY };
+let webSession = null; // Web credentials survive only in this tab's memory.
 
-// Almacén en memoria de alta resiliencia (cero fallos en cualquier runtime de Expo o Web)
-const memoryStorage = {
-  token: null,
-  user: null,
-};
-
-function getAsyncStorageModule() {
-  try {
-    const mod = require('@react-native-async-storage/async-storage');
-    const storage = mod?.default || mod;
-    if (storage && typeof storage.getItem === 'function') {
-      return storage;
-    }
-  } catch (_) {}
-  return null;
-}
-
-function getSecureStoreModule() {
-  try {
-    const mod = require('expo-secure-store');
-    const secure = mod?.default || mod;
-    if (secure && typeof secure.getItemAsync === 'function') {
-      return secure;
-    }
-  } catch (_) {}
-  return null;
-}
-
-/**
- * Guarda sesión JWT y objeto de usuario de forma segura y sin excepciones
- */
-export async function saveAuthSession(token, user) {
-  try {
-    memoryStorage.token = token || null;
-    memoryStorage.user = user ? (typeof user === 'string' ? user : JSON.stringify(user)) : null;
-
-    // 1. Intentar AsyncStorage (estándar universal en Expo y React Native)
-    const AsyncStorage = getAsyncStorageModule();
-    if (AsyncStorage) {
-      try {
-        if (token) await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, String(token));
-        if (user) await AsyncStorage.setItem(STORAGE_KEYS.USER, typeof user === 'string' ? user : JSON.stringify(user));
-        return true;
-      } catch (_) {}
-    }
-
-    // 2. Intentar Expo SecureStore solo si la plataforma nativa lo soporta
-    const SecureStore = getSecureStoreModule();
-    if (SecureStore && typeof SecureStore.setItemAsync === 'function') {
-      try {
-        const isAvailable = typeof SecureStore.isAvailableAsync === 'function'
-          ? await SecureStore.isAvailableAsync().catch(() => false)
-          : true;
-
-        if (isAvailable) {
-          if (token) await SecureStore.setItemAsync(STORAGE_KEYS.TOKEN, String(token));
-          if (user) await SecureStore.setItemAsync(STORAGE_KEYS.USER, typeof user === 'string' ? user : JSON.stringify(user));
-          return true;
-        }
-      } catch (_) {}
-    }
-
-    // 3. Fallback Web
-    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
-      try {
-        if (token) window.localStorage.setItem(STORAGE_KEYS.TOKEN, String(token));
-        if (user) window.localStorage.setItem(STORAGE_KEYS.USER, typeof user === 'string' ? user : JSON.stringify(user));
-      } catch (_) {}
-    }
-  } catch (_) {
-    // Protección absoluta contra crash
+export async function purgeLegacyAuth() {
+  await AsyncStorage.multiRemove(LEGACY_KEYS);
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    for (const key of LEGACY_KEYS) window.localStorage.removeItem(key);
   }
-
-  return true;
+  if (Platform.OS !== 'web' && await SecureStore.isAvailableAsync()) {
+    for (const key of LEGACY_KEYS) await SecureStore.deleteItemAsync(key);
+  }
 }
-
-/**
- * Recupera la sesión JWT y el usuario al iniciar la app sin fallar jamás
- */
+export async function saveAuthSession(session) {
+  const value = assertSession(session);
+  if (Platform.OS === 'web') { webSession = value; return; }
+  if (!await SecureStore.isAvailableAsync()) throw new Error('Almacenamiento seguro no disponible.');
+  // No plaintext fallback and no successful result if persistence failed.
+  await SecureStore.setItemAsync(KEY, JSON.stringify(value), OPTIONS);
+  await AsyncStorage.removeItem(DISABLED_KEY);
+}
 export async function getAuthSession() {
-  let token = null;
-  let userRaw = null;
-
-  try {
-    // 1. Intentar AsyncStorage primero
-    const AsyncStorage = getAsyncStorageModule();
-    if (AsyncStorage) {
-      try {
-        token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
-        userRaw = await AsyncStorage.getItem(STORAGE_KEYS.USER);
-      } catch (_) {}
-    }
-
-    // 2. Intentar Expo SecureStore si AsyncStorage no tenía datos
-    if (!token) {
-      const SecureStore = getSecureStoreModule();
-      if (SecureStore && typeof SecureStore.getItemAsync === 'function') {
-        try {
-          const isAvailable = typeof SecureStore.isAvailableAsync === 'function'
-            ? await SecureStore.isAvailableAsync().catch(() => false)
-            : true;
-
-          if (isAvailable) {
-            token = await SecureStore.getItemAsync(STORAGE_KEYS.TOKEN);
-            userRaw = await SecureStore.getItemAsync(STORAGE_KEYS.USER);
-          }
-        } catch (_) {}
-      }
-    }
-
-    // 3. Fallback Web
-    if (!token && Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
-      try {
-        token = window.localStorage.getItem(STORAGE_KEYS.TOKEN);
-        userRaw = window.localStorage.getItem(STORAGE_KEYS.USER);
-      } catch (_) {}
-    }
-  } catch (_) {
-    // Fallback a memoria
-  }
-
-  // 4. Fallback Memoria
-  if (!token) {
-    token = memoryStorage.token;
-    userRaw = memoryStorage.user;
-  }
-
-  let user = null;
-  if (userRaw) {
-    try {
-      user = typeof userRaw === 'string' ? JSON.parse(userRaw) : userRaw;
-    } catch (_) {
-      user = null;
-    }
-  }
-
-  return { token: token || null, user: user || null };
+  if (Platform.OS === 'web') return webSession ? assertSession(webSession) : null;
+  if (await AsyncStorage.getItem(DISABLED_KEY) === '1') return null;
+  if (!await SecureStore.isAvailableAsync()) return null;
+  const raw = await SecureStore.getItemAsync(KEY, OPTIONS);
+  return raw ? assertSession(JSON.parse(raw)) : null;
 }
-
-/**
- * Limpia la sesión almacenada al cerrar sesión
- */
 export async function clearAuthSession() {
-  memoryStorage.token = null;
-  memoryStorage.user = null;
-
-  try {
-    const AsyncStorage = getAsyncStorageModule();
-    if (AsyncStorage) {
-      try {
-        await AsyncStorage.removeItem(STORAGE_KEYS.TOKEN);
-        await AsyncStorage.removeItem(STORAGE_KEYS.USER);
-      } catch (_) {}
-    }
-
-    const SecureStore = getSecureStoreModule();
-    if (SecureStore && typeof SecureStore.deleteItemAsync === 'function') {
-      try {
-        await SecureStore.deleteItemAsync(STORAGE_KEYS.TOKEN);
-        await SecureStore.deleteItemAsync(STORAGE_KEYS.USER);
-      } catch (_) {}
-    }
-
-    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
-      try {
-        window.localStorage.removeItem(STORAGE_KEYS.TOKEN);
-        window.localStorage.removeItem(STORAGE_KEYS.USER);
-      } catch (_) {}
-    }
-  } catch (_) {}
-
-  return true;
+  webSession = null;
+  // Attempt all cleanup even if one store is unavailable.
+  const tasks = [purgeLegacyAuth()];
+  // Non-secret tombstone prevents accidental restore after a failed secure deletion.
+  tasks.push(AsyncStorage.setItem(DISABLED_KEY, '1'));
+  if (Platform.OS !== 'web') tasks.push(SecureStore.deleteItemAsync(KEY));
+  const results = await Promise.allSettled(tasks);
+  if (results.some(result => result.status === 'rejected')) {
+    throw new Error('No se pudo completar la eliminación del almacenamiento de sesión.');
+  }
 }
