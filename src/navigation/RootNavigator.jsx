@@ -1,54 +1,105 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
-import { AuthProvider, useAuth } from '../context/AuthContext';
+import { getChromePalette } from '../theme/chromePalette';
+import { useAppTheme } from '../context/ThemeContext';
+import React, { useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Animated,
+} from 'react-native';
+
+import { useAuth } from '../context/AuthContext';
 import AuthSduiScreen from '../screens/AuthSduiScreen';
 import ClientMainDashboard from '../screens/ClientMainDashboard';
 
-function MainNavigator() {
-  const { user, loading } = useAuth();
-  const [authenticatedUser, setAuthenticatedUser] = useState(user);
+function AuthSkeleton() {
+  const { theme } = useAppTheme();
+  const palette = getChromePalette(theme);
+  const opacity = useRef(new Animated.Value(0.35)).current;
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#38BDF8" />
-        <Text style={styles.loadingText}>Cargando CoPilotRD...</Text>
-      </View>
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.85,
+          duration: 650,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.35,
+          duration: 650,
+          useNativeDriver: true,
+        }),
+      ])
     );
-  }
 
-  // Si no hay usuario autenticado, mostramos la pantalla de login SDUI directamente
-  if (!authenticatedUser) {
-    return (
-      <AuthSduiScreen 
-        onAuthSuccess={(usr) => setAuthenticatedUser(usr)} 
-      />
-    );
-  }
+    animation.start();
 
-  // Una vez iniciada sesión, pasamos al dashboard principal
-  return <ClientMainDashboard />;
-}
+    return () => animation.stop();
+  }, [opacity]);
 
-export default function RootNavigator() {
   return (
-    <AuthProvider>
-      <MainNavigator />
-    </AuthProvider>
+    <View style={[styles.container, { backgroundColor: palette.background }]}>
+      <Animated.View style={[styles.title, { opacity, backgroundColor: palette.silver }]} />
+
+      <Animated.View style={[styles.field, { opacity, backgroundColor: palette.skeleton }]} />
+      <Animated.View style={[styles.field, { opacity, backgroundColor: palette.skeleton }]} />
+      <Animated.View style={[styles.field, { opacity, backgroundColor: palette.skeleton }]} />
+
+      <Animated.View style={[styles.button, { opacity, backgroundColor: palette.silver }]} />
+
+      <Text style={[styles.caption, { color: palette.muted }]}>
+        Preparando CoPilotRD...
+      </Text>
+    </View>
   );
 }
 
+export default function RootNavigator() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <AuthSkeleton />;
+  }
+
+  if (!user) {
+    return <AuthSduiScreen />;
+  }
+
+  return <ClientMainDashboard />;
+}
+
 const styles = StyleSheet.create({
-  loadingContainer: {
+  container: {
     flex: 1,
-    backgroundColor: '#0A0E1A',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: '#000000',
+    paddingHorizontal: 28,
+    paddingTop: 120,
   },
-  loadingText: {
-    color: '#38BDF8',
-    marginTop: 12,
-    fontSize: 16,
-    fontWeight: '600',
+  title: {
+    width: '65%',
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#263044',
+    alignSelf: 'center',
+    marginBottom: 58,
+  },
+  field: {
+    height: 58,
+    backgroundColor: '#1A2232',
+    borderRadius: 14,
+    marginBottom: 18,
+  },
+  button: {
+    height: 58,
+    backgroundColor: '#164E91',
+    borderRadius: 14,
+    marginTop: 16,
+  },
+  caption: {
+    color: '#94A3B8',
+    textAlign: 'center',
+    marginTop: 32,
+    fontSize: 14,
   },
 });

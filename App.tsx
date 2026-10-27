@@ -1,3 +1,6 @@
+import './global.css';
+import { ThemeProvider, useAppTheme } from './src/context/ThemeContext';
+import { getChromePalette } from './src/theme/chromePalette';
 import { registerRootComponent } from "expo";
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
@@ -9,10 +12,16 @@ import RootNavigator from './src/navigation/RootNavigator';
  * Punto de entrada principal de CoPilotRD (React Native & Expo)
  * Inicializa el proveedor global de autenticación y el gestor de navegación reactivo.
  */
-export default function App() {
+function AppContent() {
+  const { theme } = useAppTheme();
+  const palette = getChromePalette(theme);
+
   return (
-    <View style={styles.root}>
-      <StatusBar style="light" backgroundColor="#000000" />
+    <View style={[styles.root, { backgroundColor: palette.background }]}>
+      <StatusBar
+        style={theme === 'dark' ? 'light' : 'dark'}
+        backgroundColor={palette.background}
+      />
       <AuthProvider>
         <RootNavigator />
       </AuthProvider>
@@ -20,10 +29,18 @@ export default function App() {
   );
 }
 
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
+  );
+}
+
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#F8FAFC',
   },
 });
 

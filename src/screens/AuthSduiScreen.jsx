@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import { Eye, EyeOff, UserRound, IdCard, Mail, LockKeyhole } from 'lucide-react-native';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,20 +11,34 @@ import {
   Alert,
 } from 'react-native';
 import { fetchAuthSdui } from '../services/mobileApi';
+import AuthSduiRenderer from '../sdui/AuthSduiRenderer';
+import { useAppTheme } from '../context/ThemeContext';
+import { getChromePalette } from '../theme/chromePalette';
+import AuthSduiSkeleton from '../sdui/AuthSduiSkeleton';
+import { validateAuthSchema } from '../sdui/validateAuthSchema';
 import { useAuth } from '../context/AuthContext';
 import GoogleAuthButton from '../components/GoogleAuthButton';
-import CoPilotLogo from '../components/CoPilotLogo';
+import CoPilotWordmark from '../components/CoPilotWordmark';
+import { isValidEmail, normalizeEmailInput } from '../utils/emailValidation';
+import { formatCedula, isValidCedulaFormat } from '../utils/cedulaValidation';
+
+import AnimatedToast from '../components/AnimatedToast';
+import ChromeButton from '../components/ChromeButton';
+import AppleLogo from '../components/AppleLogo';
+import ChromeSurface from '../components/ChromeSurface';
 
 /**
  * Pantalla de Autenticación SDUI (Cliente) - CoPilotRD
  * Interfaz estricta conectada a Cloud Run sin fallbacks locales.
  */
 export default function AuthSduiScreen({ onAuthSuccess }) {
+  const { theme } = useAppTheme();
+  const palette = getChromePalette(theme);
   const { login, register, loginWithGoogle } = useAuth();
 
   const role = 'CLIENT';
   const [sduiSchema, setSduiSchema] = useState(null);
-  const [loadingSchema, setLoadingSchema] = useState(true);
+  const [loadingSchema, setLoadingSchema] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
   const [mode, setMode] = useState('LOGIN'); // 'LOGIN' | 'REGISTER'
 
@@ -35,34 +50,72 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
+  const [toast, setToast] = useState(null);
+  const toastId = useRef(0);
+  const [retryCount, setRetryCount] = useState(0);
+
+  const showToast = (message, type = 'error') => {
+    toastId.current += 1;
+    setToast({ id: toastId.current, message, type });
+  };
 
   useEffect(() => {
-    let isMounted = true;
+    if (connectionError) {
+      showToast(
+        'No se pudo cargar la configuración visual del servidor.',
+        'warning'
+      );
+    }
+  }, [connectionError]);
+
+  useEffect(() => {
+    if (errorMessage) {
+      showToast(errorMessage, 'error');
+    }
+  }, [errorMessage]);
+
+
+  useEffect(() => {
+    let active = true;
+
     async function loadAuthSchema() {
       setLoadingSchema(true);
       setConnectionError(false);
+      setSduiSchema(null);
+
       try {
-        const res = await fetchAuthSdui(role);
-        if (isMounted && res && res.schema) {
-          setSduiSchema(res.schema);
+        const response = await fetchAuthSdui(role);
+        const result = validateAuthSchema(response);
+
+        if (!active) return;
+
+        if (result.valid) {
+          setSduiSchema(result.schema);
         } else {
-          if (isMounted) setConnectionError(true);
+          setConnectionError(true);
         }
-      } catch (err) {
-        if (isMounted) setConnectionError(true);
+      } catch (_) {
+        if (active) setConnectionError(true);
       } finally {
-        if (isMounted) setLoadingSchema(false);
+        if (active) setLoadingSchema(false);
       }
     }
+
     loadAuthSchema();
+
     return () => {
-      isMounted = false;
+      active = false;
     };
-  }, []);
+  }, [retryCount]);
 
   const handleSubmitLogin = async () => {
-    if (!emailOrPhone || !password) {
-      setErrorMessage('Por favor ingresa tu correo o teléfono y tu contraseña.');
+    if (!isValidEmail(emailOrPhone)) {
+      setErrorMessage('Introduce un correo electrónico válido.');
+      return;
+    }
+
+    if (!password) {
+      setErrorMessage('Introduce tu contraseña.');
       return;
     }
     setSubmitting(true);
@@ -83,17 +136,28 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
   };
 
   const handleSubmitRegister = async () => {
-    if (!fullName || !emailOrPhone || !password) {
-      setErrorMessage('Por favor completa todos los campos obligatorios.');
+    if (!fullName.trim() || !password) {
+      setErrorMessage('Completa tu nombre y contraseña.');
       return;
     }
+
+    if (!isValidEmail(emailOrPhone)) {
+      setErrorMessage('Introduce un correo electrónico válido.');
+      return;
+    }
+
+    if (documentId && !isValidCedulaFormat(documentId)) {
+      setErrorMessage('La cédula debe tener el formato 000-0000000-0.');
+      return;
+    }
+
     setSubmitting(true);
     setErrorMessage(null);
 
     try {
       const res = await register({
         fullName,
-        phone: emailOrPhone,
+        email: emailOrPhone.trim(),
         documentId,
         role,
         password,
@@ -111,112 +175,244 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
     }
   };
 
-  // Pantalla de bloqueo si hay error de conexión con el servidor (sin fallbacks)
-  if (connectionError) {
-    return (
-      <View style={styles.blockContainer}>
-        <View style={styles.blockCard}>
-          <Text style={styles.blockIcon}>⚠️</Text>
-          <Text style={styles.blockTitle}>Sin conexión con el servidor</Text>
-          <Text style={styles.blockText}>
-            No pudimos establecer comunicación con el sistema central. Por favor, verifica que tengas acceso a internet e reinicia la aplicación.
-          </Text>
-        </View>
-      </View>
-    );
-  }
-
-  // Pantalla de carga (Skeleton / Indicador limpio)
-  if (loadingSchema) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={styles.loadingText}>Conectando con el sistema...</Text>
-      </View>
-    );
-  }
-
+  // Un error del esquema SDUI no bloquea el formulario.
+  // Login y registro siguen requiriendo autenticación real.
+  // El aviso se muestra dentro de la pantalla.
   const dividerText = sduiSchema?.dividerText || 'O continúa con';
 
+  if (mode === 'LOGIN') {
+    const handleRemoteAction = (action) => {
+      switch (action) {
+        case 'login':
+          handleSubmitLogin();
+          break;
+
+        case 'navigate_register':
+          setErrorMessage(null);
+          setMode('REGISTER');
+          break;
+
+        case 'forgot_password':
+          Alert.alert(
+            'Recuperación de contraseña',
+            'Este proceso todavía no está disponible. No se ha enviado ninguna solicitud.'
+          );
+          break;
+
+        default:
+          break;
+      }
+    };
+
+    const handleSocialAuth = (provider) => {
+      if (provider === 'google' || provider === 'apple') {
+        Alert.alert(
+          'Autenticación externa',
+          'Este proveedor todavía requiere integración OAuth real.'
+        );
+      }
+    };
+
+    return (
+      <View style={{ flex: 1, backgroundColor: palette.background }}>
+        <ScrollView
+          contentContainerStyle={{
+            flexGrow: 1,
+            justifyContent: 'center',
+            padding: 20,
+          }}
+        >
+          {loadingSchema ? (
+            <AuthSduiSkeleton />
+          ) : sduiSchema ? (
+            <View style={{ width: '100%' }}>
+              <CoPilotWordmark
+                size={34}
+                style={{ marginBottom: 30 }}
+              />
+              <AuthSduiRenderer
+                schema={sduiSchema}
+              values={{
+                identifier: emailOrPhone,
+                password,
+              }}
+              onChangeField={(key, value) => {
+                if (key === 'identifier') setEmailOrPhone(normalizeEmailInput(value));
+                if (key === 'password') setPassword(value);
+              }}
+              onAction={handleRemoteAction}
+              onSocialAuth={handleSocialAuth}
+              submitting={submitting}
+              />
+            </View>
+          ) : (
+            <View style={{ alignItems: 'center', padding: 24 }}>
+              <Text style={{
+                color: '#C8CDD5',
+                textAlign: 'center',
+                marginBottom: 20,
+              }}>
+                No se pudo cargar la interfaz desde Google Cloud.
+              </Text>
+              <TouchableOpacity
+                onPress={() => setRetryCount(value => value + 1)}
+                style={{
+                  paddingVertical: 14,
+                  paddingHorizontal: 28,
+                  borderRadius: 12,
+                  backgroundColor: '#BFC4CC',
+                }}
+              >
+                <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>
+                  Reintentar
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </ScrollView>
+
+        {toast && (
+          <AnimatedToast
+            key={toast.id}
+            message={toast.message}
+            type={toast.type}
+            onDismiss={() =>
+              setToast(current =>
+                current?.id === toast.id ? null : current
+              )
+            }
+          />
+        )}
+      </View>
+    );
+  }
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <View style={{ flex: 1 }}>
+      <ScrollView style={[styles.container, { backgroundColor: palette.background }]} contentContainerStyle={styles.content}>
       
       {/* Tarjeta Central */}
       <View style={styles.authCard}>
         
-        <View style={styles.logoWrapper}>
-          <CoPilotLogo size={36} />
-        </View>
+
 
         {/* Marca CoPilotRD */}
         <View style={styles.brandRow}>
-          <Text style={styles.brandTitle}>
-            CoPilot<Text style={styles.brandAccent}>RD</Text>
-          </Text>
-          <Text style={styles.brandRegistered}>®</Text>
+          <CoPilotWordmark
+            size={34}
+            style={{ marginBottom: 8 }}
+          />
         </View>
 
-        <Text style={styles.subtitleText}>
+        <Text style={[styles.subtitleText, { color: palette.muted }]}>
           {mode === 'LOGIN' ? 'Iniciar Sesión' : 'Crear Cuenta de Pasajero'}
         </Text>
 
-        {errorMessage && (
-          <View style={styles.errorBanner}>
-            <Text style={styles.errorBannerText}>⚠️ {errorMessage}</Text>
-          </View>
-        )}
+
 
         {/* Inputs de Formulario */}
-        <View style={styles.formContainer}>
+        <View style={[styles.formContainer, { marginTop: 36 }]}>
           {mode === 'REGISTER' && (
             <>
-              <View style={styles.inputWrapper}>
-                <Text style={styles.inputIcon}>👤</Text>
+              <ChromeSurface
+                  variant="input"
+                  radius={14}
+                  style={{
+                    height: 60,
+                    marginBottom: 12,
+                  }}
+                  contentStyle={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingHorizontal: 14,
+                  }}
+                >
+                <UserRound size={19} color={palette.muted} style={styles.inputIcon} />
                 <TextInput
-                  style={styles.textInput}
+                  style={[styles.textInput, { color: palette.text }]}
                   value={fullName}
                   onChangeText={setFullName}
                   placeholder="Nombre y Apellido"
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor={palette.muted}
                   autoCapitalize="words"
                 />
-              </View>
+              </ChromeSurface>
 
-              <View style={styles.inputWrapper}>
-                <Text style={styles.inputIcon}>🪪</Text>
+              <ChromeSurface
+                  variant="input"
+                  radius={14}
+                  style={{
+                    height: 60,
+                    marginBottom: 12,
+                  }}
+                  contentStyle={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingHorizontal: 14,
+                  }}
+                >
+                <IdCard size={19} color={palette.muted} style={styles.inputIcon} />
                 <TextInput
-                  style={styles.textInput}
+                  style={[styles.textInput, { color: palette.text }]}
                   value={documentId}
-                  onChangeText={setDocumentId}
-                  placeholder="Cédula JCE (opcional)"
-                  placeholderTextColor="#64748B"
+                  onChangeText={(text) => setDocumentId(formatCedula(text))}
+                  placeholder="000-0000000-0 (opcional)"
+                  placeholderTextColor={palette.muted}
+                  keyboardType="number-pad"
+                  maxLength={13}
+                  autoCorrect={false}
                 />
-              </View>
+              </ChromeSurface>
             </>
           )}
 
-          <View style={styles.inputWrapper}>
-            <Text style={styles.inputIcon}>✉️</Text>
+          <ChromeSurface
+                  variant="input"
+                  radius={14}
+                  style={{
+                    height: 60,
+                    marginBottom: 12,
+                  }}
+                  contentStyle={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingHorizontal: 14,
+                  }}
+                >
+            <Mail size={19} color={palette.muted} style={styles.inputIcon} />
             <TextInput
-              style={styles.textInput}
+              style={[styles.textInput, { color: palette.text }]}
               value={emailOrPhone}
-              onChangeText={setEmailOrPhone}
-              placeholder="Correo o Teléfono"
-              placeholderTextColor="#64748B"
+              onChangeText={(text) => setEmailOrPhone(normalizeEmailInput(text))}
+               keyboardType="email-address"
+              placeholder="Correo electrónico"
+              placeholderTextColor={palette.muted}
               keyboardPosition="below"
               autoCapitalize="none"
               autoCorrect={false}
             />
-          </View>
+          </ChromeSurface>
 
-          <View style={styles.inputWrapper}>
-            <Text style={styles.inputIcon}>🔒</Text>
+          <ChromeSurface
+                  variant="input"
+                  radius={14}
+                  style={{
+                    height: 60,
+                    marginBottom: 12,
+                  }}
+                  contentStyle={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingHorizontal: 14,
+                  }}
+                >
+            <LockKeyhole size={19} color={palette.muted} style={styles.inputIcon} />
             <TextInput
-              style={styles.textInput}
+              style={[styles.textInput, { color: palette.text }]}
               value={password}
               onChangeText={setPassword}
               placeholder="Contraseña"
-              placeholderTextColor="#64748B"
+              placeholderTextColor={palette.muted}
               secureTextEntry={!showPassword}
               autoCapitalize="none"
             />
@@ -224,40 +420,38 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
               onPress={() => setShowPassword(!showPassword)}
               style={styles.eyeBtn}
             >
-              <Text style={styles.eyeIcon}>{showPassword ? '👁️' : '🙈'}</Text>
+              {showPassword ? <EyeOff size={20} color={palette.muted} /> : <Eye size={20} color={palette.muted} />}
             </TouchableOpacity>
-          </View>
+          </ChromeSurface>
 
-          <TouchableOpacity
-            style={[styles.signInBtn, submitting && styles.btnDisabled]}
-            onPress={mode === 'LOGIN' ? handleSubmitLogin : handleSubmitRegister}
-            disabled={submitting}
-            activeOpacity={0.85}
-          >
-            {submitting ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <Text style={styles.signInBtnText}>
-                {mode === 'LOGIN' ? 'Entrar' : 'Registrarse'}
-              </Text>
-            )}
-          </TouchableOpacity>
+          <ChromeButton
+        title={mode === 'LOGIN' ? 'Entrar' : 'Registrarse'}
+        height={60}
+        style={{ marginTop: 4 }}
+        disabled={submitting}
+        loading={submitting}
+        onPress={
+          mode === 'LOGIN'
+            ? handleSubmitLogin
+            : handleSubmitRegister
+        }
+      />
 
           {mode === 'LOGIN' && (
             <TouchableOpacity
               style={styles.forgotBtn}
-              onPress={() => Alert.alert('Recuperación', 'Te hemos enviado instrucciones a tu medio de contacto.')}
+              onPress={() => Alert.alert('Recuperación de contraseña', 'Este proceso todavía no está disponible. No se ha enviado ninguna solicitud de recuperación.')}
             >
-              <Text style={styles.forgotText}>¿Olvidaste tu contraseña?</Text>
+              <Text style={[styles.forgotText, { color: palette.silver }]}>¿Olvidaste tu contraseña?</Text>
             </TouchableOpacity>
           )}
         </View>
 
         {/* Separador */}
         <View style={styles.dividerRow}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>{dividerText}</Text>
-          <View style={styles.dividerLine} />
+          <View style={[styles.dividerLine, { backgroundColor: palette.silver }]} />
+          <Text style={[styles.dividerText, { color: palette.silver }]}>{dividerText}</Text>
+          <View style={[styles.dividerLine, { backgroundColor: palette.silver }]} />
         </View>
 
         {/* Botones Sociales */}
@@ -271,24 +465,54 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
           />
 
           <TouchableOpacity
-            style={styles.socialBtn}
-            onPress={async () => {
-              const res = await loginWithGoogle('apple.user@copilotrd.com', 'Usuario Apple', role);
-              if (res.success && onAuthSuccess) onAuthSuccess(res.user);
-            }}
+            accessibilityRole="button"
+            accessibilityLabel="Continuar con Apple"
+            style={[
+              styles.socialBtn,
+              {
+                height: 60,
+                backgroundColor: 'transparent',
+                borderWidth: 0,
+                overflow: 'hidden',
+              },
+            ]}
+            onPress={() => Alert.alert(
+              'Apple',
+              'Se requiere Sign in with Apple real. No se permiten identidades simuladas.'
+            )}
             disabled={submitting}
             activeOpacity={0.85}
           >
-            <View style={styles.socialBtnContent}>
-              <Text style={styles.appleIcon}></Text>
-              <Text style={styles.socialBtnText}>Continuar con Apple</Text>
-            </View>
+            <ChromeSurface
+              variant="secondary"
+              radius={15}
+              style={{ width: '100%', height: '100%' }}
+              contentStyle={{
+                backgroundColor: palette.surface,
+              }}
+            >
+              <View style={styles.socialBtnContent}>
+                <AppleLogo size={23} />
+                <Text
+                  style={[
+                    styles.socialBtnText,
+                    {
+                      color: palette.text,
+                      fontSize: 15,
+                      fontWeight: '700',
+                    },
+                  ]}
+                >
+                  Continuar con Apple
+                </Text>
+              </View>
+            </ChromeSurface>
           </TouchableOpacity>
         </View>
 
         {/* Pie de Alternancia */}
         <View style={styles.footerRow}>
-          <Text style={styles.footerPrompt}>
+          <Text style={[styles.footerPrompt, { color: palette.muted }]}>
             {mode === 'LOGIN' ? '¿Nuevo en CoPilotRD? ' : '¿Ya tienes cuenta? '}
           </Text>
           <TouchableOpacity
@@ -297,14 +521,27 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
               setErrorMessage(null);
             }}
           >
-            <Text style={styles.footerLinkText}>
+            <Text style={[styles.footerLinkText, { color: palette.silver }]}>
               {mode === 'LOGIN' ? 'Crea una cuenta' : 'Inicia Sesión'}
             </Text>
           </TouchableOpacity>
         </View>
 
       </View>
-    </ScrollView>
+      </ScrollView>
+      {toast && (
+        <AnimatedToast
+          key={toast.id}
+          message={toast.message}
+          type={toast.type}
+          onDismiss={() =>
+            setToast(current =>
+              current?.id === toast.id ? null : current
+            )
+          }
+        />
+      )}
+    </View>
   );
 }
 
@@ -346,14 +583,15 @@ const styles = StyleSheet.create({
   blockText: { fontSize: 13, color: '#94A3B8', textAlign: 'center', lineHeight: 18 },
   authCard: {
     width: '100%',
-    maxWidth: 380,
-    backgroundColor: '#0E121B',
-    borderRadius: 24,
-    paddingHorizontal: 22,
-    paddingVertical: 28,
-    borderWidth: 1,
-    borderColor: '#1A2133',
+    maxWidth: 420,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    borderRadius: 0,
+    paddingHorizontal: 4,
+    paddingVertical: 12,
     alignItems: 'center',
+    elevation: 0,
+    shadowOpacity: 0,
   },
   logoWrapper: { marginBottom: 8 },
   brandRow: {
@@ -398,7 +636,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     height: 48,
   },
-  inputIcon: { fontSize: 15, marginRight: 10 },
+  inputIcon: { marginRight: 10 },
   textInput: { flex: 1, color: '#FFFFFF', fontSize: 14 },
   eyeBtn: { padding: 6 },
   eyeIcon: { fontSize: 15 },
@@ -413,15 +651,15 @@ const styles = StyleSheet.create({
   signInBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   btnDisabled: { opacity: 0.65 },
   forgotBtn: { marginTop: 12, alignItems: 'center' },
-  forgotText: { color: '#64748B', fontSize: 12 },
+  forgotText: { color: '#C7CBD2', fontSize: 13, fontWeight: '600', textDecorationLine: 'underline' },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
     marginVertical: 14,
   },
-  dividerLine: { flex: 1, height: 1, backgroundColor: '#1E2538' },
-  dividerText: { color: '#64748B', fontSize: 12, marginHorizontal: 10 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#C7CBD2', opacity: 0.65 },
+  dividerText: { color: '#C7CBD2', fontSize: 12, fontWeight: '600', marginHorizontal: 14 },
   socialButtonsContainer: { width: '100%', gap: 10 },
   socialBtn: {
     backgroundColor: '#FFFFFF',
@@ -432,7 +670,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  socialBtnContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  socialBtnContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    flex: 1,
+    paddingHorizontal: 14,
+  },
   appleIcon: { fontSize: 18, color: '#000000', marginBottom: 2 },
   socialBtnText: { color: '#000000', fontSize: 14, fontWeight: '600' },
   footerRow: {
@@ -442,5 +687,5 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   footerPrompt: { color: '#64748B', fontSize: 12 },
-  footerLinkText: { color: '#007AFF', fontSize: 12, fontWeight: '700' },
+  footerLinkText: { color: '#C7CBD2', fontSize: 13, fontWeight: '800', textDecorationLine: 'underline' },
 });

@@ -13,9 +13,14 @@ import {
   Animated,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
-import { requestTrip } from '../services/mobileApi';
+import { useAppTheme } from '../context/ThemeContext';
+// requestTrip pendiente de integración real con el backend.
 import CoPilotClientMap from '../components/CoPilotClientMap';
+import NativeTripCard from '../components/NativeTripCard';
+import { adaptConfirmedTrip } from '../utils/tripTrackingAdapter';
 import ClientBottomNav from '../components/ClientBottomNav';
+import ChromeSurface from '../components/ChromeSurface';
+import { CarFront, Package, HeartPulse } from 'lucide-react-native';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -47,6 +52,7 @@ function CardSkeleton() {
 
 export default function ClientMainDashboard({ onOpenSduiConfig }) {
   const { user, logout } = useAuth();
+  const { preference, changeTheme, colors } = useAppTheme();
 
   const [activeModule, setActiveModule] = useState('HOME');
   const [origin, setOrigin] = useState('');
@@ -56,16 +62,44 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
   const [isFavoriteDriver, setIsFavoriteDriver] = useState(false);
   const [tipAmount, setTipAmount] = useState(100);
   const [currentStep, setCurrentStep] = useState(1);
-  const [isCardCollapsed, setIsCardCollapsed] = useState(false);
+  const stepTransitionOpacity = useRef(new Animated.Value(1)).current;
+  const stepTransitionOffset = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    stepTransitionOpacity.setValue(0);
+    stepTransitionOffset.setValue(12);
+
+    const animation = Animated.parallel([
+      Animated.timing(stepTransitionOpacity, {
+        toValue: 1,
+        duration: 240,
+        useNativeDriver: true,
+      }),
+      Animated.timing(stepTransitionOffset, {
+        toValue: 0,
+        duration: 240,
+        useNativeDriver: true,
+      }),
+    ]);
+
+    animation.start();
+
+    return () => animation.stop();
+  }, [currentStep, stepTransitionOpacity, stepTransitionOffset]);
+  const [activeService, setActiveService] = useState('TRIP');
+  const [isCardCollapsed, setIsCardCollapsed] = useState(true);
+  const [isMapFullscreen, setIsMapFullscreen] = useState(false);
   const [calculatingFare, setCalculatingFare] = useState(false);
   const [loading, setLoading] = useState(false);
   const [tripResult, setTripResult] = useState(null);
+  const [isTrackingExpanded, setIsTrackingExpanded] = useState(true);
+  const confirmedTrip = adaptConfirmedTrip(tripResult);
   const [validationError, setValidationError] = useState(null);
 
-  const clientName = user?.fullName || 'María Elena Ventura';
-  const clientEmail = user?.email || 'pasajero.nosotrosrd@gmail.com';
-  const clientPhone = user?.phone || '+1 809-555-0142';
-  const kmBalance = user?.kmBank || 25;
+  const clientName = user?.fullName || 'Pasajero';
+  const clientEmail = user?.email || 'No disponible';
+  const clientPhone = user?.phone || 'No disponible';
+  const kmBalance = user?.kmBank ?? null;
 
   const quickDestinations = [
     { label: 'Aeropuerto AILA', address: 'Aeropuerto Int. Las Américas (AILA)' },
@@ -116,6 +150,12 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
   };
 
   const handleRequestTrip = async () => {
+    Alert.alert(
+      'Servicio no disponible',
+      'El despacho de viajes estará disponible cuando se valide la integración real con el backend.'
+    );
+    return;
+
     setLoading(true);
     setValidationError(null);
     setTripResult(null);
@@ -159,25 +199,187 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
   };
 
   return (
-    <View style={styles.mainContainer}>
+    <View style={[styles.mainContainer, { backgroundColor: colors.background }]}>
       {/* 1. MÓDULO INICIO: MAPA Y TARJETA DE VIAJE */}
       {activeModule === 'HOME' && (
         <View style={styles.homeTabContainer}>
-          {/* Capa de Mapa en Fondo Absoluto con dimensiones explícitas */}
-          <View style={styles.mapBackgroundContainer}>
-            <CoPilotClientMap isExpanded={true} />
+          {/* Mapa GPS real: tarjeta compacta o pantalla completa */}
+          <View
+            style={[
+              styles.mapBackgroundContainer,
+              isMapFullscreen && styles.mapFullscreenContainer,
+            ]}
+          >
+            {!isMapFullscreen && (
+              <View style={styles.mapCardHeading}>
+                <Text style={styles.mapCardTitle}>Mapa GPS</Text>
+                <Text style={styles.mapCardStatus}>Ubicación en vivo</Text>
+              </View>
+            )}
+
+            <View style={styles.mapViewport}>
+              <CoPilotClientMap isExpanded={isMapFullscreen} />
+            </View>
+
+            <TouchableOpacity
+              style={styles.mapExpandButton}
+              onPress={() => setIsMapFullscreen(value => !value)}
+              accessibilityRole="button"
+              accessibilityLabel={
+                isMapFullscreen
+                  ? 'Restaurar mapa'
+                  : 'Ampliar mapa a pantalla completa'
+              }
+              activeOpacity={0.85}
+            >
+              <Text style={styles.mapExpandButtonText}>
+                {isMapFullscreen ? '↙ Restaurar mapa' : '⛶ Ampliar mapa'}
+              </Text>
+            </TouchableOpacity>
           </View>
 
+          {!isMapFullscreen && (
+            <View style={styles.recentTripsContainer}>
+              <Text style={styles.recentTripsTitle}>
+                Viajes recientes
+              </Text>
+              <Text style={styles.recentTripsEmpty}>
+                Tus viajes registrados aparecerán aquí.
+              </Text>
+            </View>
+          )}
+
+          {!isMapFullscreen && confirmedTrip && (
+            <View style={styles.trackingOverlay}>
+              <NativeTripCard
+                trip={confirmedTrip}
+                isExpanded={isTrackingExpanded}
+                onToggleExpand={() =>
+                  setIsTrackingExpanded(previous => !previous)
+                }
+              />
+            </View>
+          )}
+
+          {/* Búsqueda flotante: comparte el destino con la consola */}
+
+          <View
+            style={[
+              styles.serviceSelector,
+              isMapFullscreen && styles.hiddenWhileFullscreen,
+            ]}
+            pointerEvents={isMapFullscreen ? 'none' : 'auto'}
+          >
+            {[
+              { id: 'TRIP', label: 'Viajes', Icon: CarFront },
+              { id: 'PACKAGE', label: 'Paquetes', Icon: Package },
+              { id: 'VEH', label: 'VEH', Icon: HeartPulse },
+            ].map(service => {
+              const selected = activeService === service.id;
+
+              return (
+                <TouchableOpacity
+                  key={service.id}
+                  style={styles.serviceTouch}
+                  onPress={() => {
+                    setActiveService(service.id);
+                    setIsCardCollapsed(true);
+                  }}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={service.label}
+                  activeOpacity={0.85}
+                >
+                  <ChromeSurface
+                    radius={14}
+                    variant={selected ? 'input' : 'secondary'}
+                    style={styles.serviceChrome}
+                    contentStyle={[
+                      styles.serviceChromeContent,
+                      selected && styles.serviceSelected,
+                    ]}
+                  >
+                    <service.Icon
+                      size={22}
+                      strokeWidth={selected ? 2.3 : 1.9}
+                      color={selected ? '#F5F7FA' : '#C2CBD5'}
+                    />
+                    <Text style={[
+                      styles.serviceLabel,
+                      selected && styles.serviceTextSelected,
+                    ]}>
+                      {service.label}
+                    </Text>
+                  </ChromeSurface>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {!isMapFullscreen && activeService !== 'TRIP' && (
+            <View style={{
+              position: 'absolute',
+              top: 186,
+              left: 16,
+              right: 16,
+              zIndex: 18,
+              backgroundColor: '#151A20',
+              borderWidth: 1,
+              borderColor: '#69727E',
+              borderRadius: 12,
+              padding: 12,
+            }}>
+              <Text style={{ color: '#EEF0F3', textAlign: 'center', fontWeight: '600' }}>
+                {activeService === 'PACKAGE'
+                  ? 'Paquetes: pendiente de integración SDUI'
+                  : 'VEH: transporte asistido no urgente, pendiente de integración SDUI'}
+              </Text>
+            </View>
+          )}
+          {!isMapFullscreen && activeService === 'TRIP' && !confirmedTrip && isCardCollapsed && (
+            <TouchableOpacity
+              style={styles.floatingDestination}
+              onPress={() => {
+                setCurrentStep(1);
+                setIsCardCollapsed(false);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Ingresar destino del viaje"
+              activeOpacity={0.85}
+            >
+              <Text style={styles.floatingDestinationIcon}>⌕</Text>
+              <Text
+                style={styles.floatingDestinationText}
+                numberOfLines={1}
+              >
+                {destination || '¿A dónde te diriges?'}
+              </Text>
+              <Text style={styles.floatingDestinationArrow}>›</Text>
+            </TouchableOpacity>
+          )}
+
           {/* Tarjeta Flotante Bottom Sheet */}
+          {false && !isMapFullscreen && activeService === 'TRIP' && !confirmedTrip && (
           <View style={[styles.bottomSheetCard, isCardCollapsed && styles.bottomSheetCardCollapsed]}>
             <TouchableOpacity
               style={styles.dragHandleContainer}
               onPress={() => setIsCardCollapsed(!isCardCollapsed)}
             >
               <View style={styles.dragHandle} />
+              {isCardCollapsed && (
+                <Text style={styles.collapsedSheetTitle}>
+                  Planificar viaje  ·  Toca para configurar tu ruta
+                </Text>
+              )}
             </TouchableOpacity>
 
             {!isCardCollapsed && (
+              <Animated.View
+                style={{
+                  flex: 1,
+                  opacity: stepTransitionOpacity,
+                  transform: [{ translateY: stepTransitionOffset }],
+                }}
+              >
               <ScrollView
                 nestedScrollEnabled
                 showsVerticalScrollIndicator={false}
@@ -279,6 +481,24 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
                           )}
                         </View>
 
+                        {currentStep === 3 ? (
+                          <TouchableOpacity
+                            className="rounded-xl border border-zinc-600 bg-zinc-900 p-3"
+                            onPress={() => setCurrentStep(2)}
+                            accessibilityRole="button"
+                            accessibilityLabel="Cambiar categoría de vehículo"
+                          >
+                            <Text className="text-xs text-zinc-400">
+                              Vehículo seleccionado
+                            </Text>
+                            <Text className="mt-1 text-base font-semibold text-white">
+                              {categories.find((cat) => cat.id === selectedCategory)?.name || selectedCategory}
+                            </Text>
+                            <Text className="mt-1 text-xs text-zinc-400">
+                              Toca para cambiar de categoría
+                            </Text>
+                          </TouchableOpacity>
+                        ) : (
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
                           {categories.map((cat) => (
                             <TouchableOpacity
@@ -305,6 +525,7 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
                             </TouchableOpacity>
                           ))}
                         </ScrollView>
+                        )}
                       </>
                     )}
                   </View>
@@ -379,20 +600,23 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
                       </View>
                     )}
 
-                    {tripResult && (
+                    {tripResult && !confirmedTrip && (
                       <View style={styles.resultCard}>
-                        <Text style={styles.resultTitle}>¡Viaje Despachado con Éxito!</Text>
-                        <Text style={styles.resultText}>Código: {tripResult.code}</Text>
+                        <Text style={styles.resultTitle}>
+                          Solicitud recibida
+                        </Text>
                         <Text style={styles.resultText}>
-                          Tarifa: RD$ {tripResult.fare?.totalFare || '350'}
+                          Esperando confirmación del estado del viaje.
                         </Text>
                       </View>
                     )}
                   </View>
                 )}
               </ScrollView>
+              </Animated.View>
             )}
           </View>
+          )}
         </View>
       )}
 
@@ -437,17 +661,78 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
 
       {/* 4. MÓDULO PERFIL */}
       {activeModule === 'PROFILE' && (
-        <ScrollView style={styles.moduleContainer} contentContainerStyle={styles.moduleContent}>
-          <Text style={styles.moduleHeaderTitle}>👤 Mi Perfil</Text>
-          <View style={styles.userProfileCard}>
+        <ScrollView style={[styles.moduleContainer, { backgroundColor: colors.background }]} contentContainerStyle={styles.moduleContent}>
+          <Text style={[styles.moduleHeaderTitle, { color: colors.text }]}>👤 Mi Perfil</Text>
+          <View style={[styles.userProfileCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.profileAvatar}>
               <Text style={styles.profileAvatarText}>{clientName.charAt(0)}</Text>
             </View>
-            <Text style={styles.profileName}>{clientName}</Text>
-            <Text style={styles.profileEmail}>{clientEmail}</Text>
-            <Text style={styles.profilePhone}>{clientPhone}</Text>
+            <Text style={[styles.profileName, { color: colors.text }]}>{clientName}</Text>
+            <Text style={[styles.profileEmail, { color: colors.muted }]}>{clientEmail}</Text>
+            <Text style={[styles.profilePhone, { color: colors.primary }]}>{clientPhone}</Text>
             <View style={styles.verifiedBadgeRow}>
               <Text style={styles.verifiedBadgeText}>✓ Identidad Verificada por JCE</Text>
+            </View>
+          </View>
+
+          <View style={{
+            backgroundColor: colors.surface,
+            borderColor: colors.border,
+            borderWidth: 1,
+            borderRadius: 16,
+            padding: 16,
+            marginBottom: 20,
+          }}>
+            <Text style={{
+              color: colors.text,
+              fontSize: 16,
+              fontWeight: 'bold',
+              marginBottom: 6,
+            }}>
+              Apariencia
+            </Text>
+            <Text style={{
+              color: colors.muted,
+              fontSize: 12,
+              marginBottom: 14,
+            }}>
+              Selecciona cómo deseas visualizar CoPilotRD.
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {[
+                { key: 'light', label: '☀️ Claro' },
+                { key: 'dark', label: '🌙 Oscuro' },
+                { key: 'system', label: '📱 Sistema' },
+              ].map((option) => {
+                const selected = preference === option.key;
+
+                return (
+                  <TouchableOpacity
+                    key={option.key}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => changeTheme(option.key)}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 12,
+                      paddingHorizontal: 4,
+                      alignItems: 'center',
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: selected ? colors.primary : colors.border,
+                      backgroundColor: selected ? colors.primary : colors.background,
+                    }}
+                  >
+                    <Text style={{
+                      color: selected ? '#FFFFFF' : colors.text,
+                      fontSize: 11,
+                      fontWeight: selected ? 'bold' : '500',
+                    }}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </View>
 
@@ -464,6 +749,14 @@ export default function ClientMainDashboard({ onOpenSduiConfig }) {
 }
 
 const styles = StyleSheet.create({
+  trackingOverlay: {
+    position: 'absolute',
+    bottom: 60,
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    maxHeight: SCREEN_HEIGHT * 0.72,
+  },
   mainContainer: { 
     flex: 1, 
     backgroundColor: '#0A0E1A' 
@@ -475,36 +768,202 @@ const styles = StyleSheet.create({
   },
   mapBackgroundContainer: {
     position: 'absolute',
+    top: 254,
+    left: 16,
+    right: 16,
+    height: 238,
+    backgroundColor: '#101318',
+    borderWidth: 1,
+    borderColor: '#77828E',
+    borderRadius: 20,
+    overflow: 'hidden',
+    zIndex: 2,
+    elevation: 0,
+  },
+  mapFullscreenContainer: {
     top: 0,
     left: 0,
-    width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT,
-    zIndex: 1,
+    right: 0,
+    bottom: 72,
+    height: undefined,
+    borderWidth: 0,
+    borderRadius: 0,
+    zIndex: 60,
+    elevation: 15,
+  },
+  mapCardHeading: {
+    height: 34,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  mapCardTitle: {
+    color: '#F1F3F5',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  mapCardStatus: {
+    color: '#AEB7C4',
+    fontSize: 10,
+  },
+  mapViewport: {
+    flex: 1,
+    overflow: 'hidden',
+    backgroundColor: '#181B1F',
+  },
+  mapExpandButton: {
+    height: 36,
+    backgroundColor: '#1B2027',
+    borderTopWidth: 1,
+    borderTopColor: '#66717D',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mapExpandButtonText: {
+    color: '#E6EBF0',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  recentTripsContainer: {
+    position: 'absolute',
+    top: 504,
+    left: 16,
+    right: 16,
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#59636F',
+    backgroundColor: '#11151A',
+    zIndex: 3,
+  },
+  recentTripsTitle: {
+    color: '#F0F2F5',
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  recentTripsEmpty: {
+    color: '#AEB7C4',
+    fontSize: 12,
+  },
+  hiddenWhileFullscreen: {
+    opacity: 0,
+  },
+  serviceSelector: {
+    position: 'absolute',
+    top: 102,
+    left: 16,
+    right: 16,
+    zIndex: 18,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  serviceTouch: {
+    flex: 1,
+    height: 76,
+  },
+  serviceChrome: {
+    flex: 1,
+  },
+  serviceChromeContent: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#181C22',
+  },
+  serviceSelected: {
+    backgroundColor: '#303338',
+  },
+  serviceIcon: {
+    color: '#AEB7C4',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  serviceLabel: {
+    color: '#E3E8EE',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  serviceTextSelected: {
+    color: '#F5F7FA',
+  },
+  collapsedSheetTitle: {
+    color: '#D8DCE1',
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  floatingDestination: {
+    position: 'absolute',
+    top: 186,
+    left: 16,
+    right: 16,
+    zIndex: 15,
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    backgroundColor: '#101318',
+    borderColor: '#AEB7C4',
+    borderWidth: 1,
+    borderRadius: 18,
+    elevation: 8,
+  },
+  floatingDestinationIcon: {
+    color: '#D5DCE5',
+    fontSize: 28,
+    marginRight: 12,
+  },
+  floatingDestinationText: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  floatingDestinationArrow: {
+    color: '#D5DCE5',
+    fontSize: 28,
+    marginLeft: 8,
   },
   bottomSheetCard: {
     position: 'absolute',
-    bottom: 60,
-    left: 0,
-    right: 0,
+    bottom: 72,
+    left: 12,
+    right: 12,
     maxHeight: SCREEN_HEIGHT * 0.60,
-    backgroundColor: '#0E121B',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    backgroundColor: '#080A0D',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
     borderWidth: 1,
-    borderColor: '#1A2133',
-    zIndex: 10,
+    borderColor: '#535A63',
+    zIndex: 30,
+    elevation: 16,
     paddingBottom: 15,
   },
-  bottomSheetCardCollapsed: { maxHeight: 42 },
-  dragHandleContainer: { width: '100%', paddingVertical: 10, alignItems: 'center' },
-  dragHandle: { width: 40, height: 5, borderRadius: 3, backgroundColor: '#334155' },
+  bottomSheetCardCollapsed: {
+    height: 54,
+    maxHeight: 54,
+    paddingBottom: 0,
+  },
+  dragHandleContainer: {
+    width: '100%',
+    paddingTop: 10,
+    paddingBottom: 8,
+    alignItems: 'center',
+  },
+  dragHandle: { width: 34, height: 3, borderRadius: 3, backgroundColor: '#858C94' },
   cardContent: { paddingHorizontal: 16, paddingBottom: 15 },
   routeUnifiedCard: {
-    backgroundColor: '#151A27',
+    backgroundColor: '#14181E',
     borderRadius: 18,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#222B40',
+    borderColor: '#8793A3',
     marginBottom: 12,
   },
   inputRowContainer: { flexDirection: 'row', alignItems: 'center', marginVertical: 4 },
@@ -520,7 +979,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#334155',
   },
-  gpsTouchText: { color: '#38BDF8', fontSize: 10, fontWeight: '700' },
+  gpsTouchText: { color: '#D5DCE5', fontSize: 10, fontWeight: '700' },
   removeStopText: { color: '#EF4444', fontSize: 14, paddingHorizontal: 6 },
   connectorLine: {
     width: 2,
@@ -530,58 +989,58 @@ const styles = StyleSheet.create({
     marginVertical: -2,
   },
   addStopBtn: { marginTop: 6, alignSelf: 'flex-start' },
-  addStopBtnText: { color: '#38BDF8', fontSize: 11, fontWeight: '600' },
+  addStopBtnText: { color: '#D5DCE5', fontSize: 11, fontWeight: '600' },
   chipsLabel: { fontSize: 11, color: '#64748B', marginBottom: 6 },
   chipsScroll: { flexDirection: 'row', marginBottom: 12 },
   destinationChip: {
-    backgroundColor: '#1A2338',
+    backgroundColor: '#20252D',
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 14,
     marginRight: 6,
   },
-  destinationChipActive: { backgroundColor: '#2563EB' },
+  destinationChipActive: { backgroundColor: '#AEB7C4' },
   destinationChipText: { color: '#94A3B8', fontSize: 11 },
-  destinationChipTextActive: { color: '#FFFFFF', fontWeight: 'bold' },
+  destinationChipTextActive: { color: '#101318', fontWeight: 'bold' },
   primaryBtn: {
-    backgroundColor: '#2563EB',
+    backgroundColor: '#C9D1DA',
     height: 46,
     borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 4,
   },
-  primaryBtnText: { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold' },
+  primaryBtnText: { color: '#101318', fontSize: 14, fontWeight: 'bold' },
   stepSection: { marginTop: 8 },
   sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   sectionTitle: { fontSize: 12, fontWeight: 'bold', color: '#F8FAFC' },
-  changeStepText: { color: '#38BDF8', fontSize: 11, fontWeight: '600' },
+  changeStepText: { color: '#D5DCE5', fontSize: 11, fontWeight: '600' },
   categoryScroll: { flexDirection: 'row', marginBottom: 12 },
   categoryOption: {
     width: 110,
-    backgroundColor: '#182033',
+    backgroundColor: '#151A20',
     borderRadius: 12,
     padding: 10,
     borderWidth: 1,
-    borderColor: '#263352',
+    borderColor: '#626D7B',
     marginRight: 8,
     alignItems: 'center',
   },
-  categoryOptionActive: { borderColor: '#3B82F6', backgroundColor: '#1E2E4F' },
+  categoryOptionActive: { borderColor: '#E2E8F0', backgroundColor: '#303741' },
   categoryName: { color: '#94A3B8', fontSize: 11, fontWeight: '700' },
-  categoryNameActive: { color: '#60A5FA' },
+  categoryNameActive: { color: '#E2E8F0' },
   categoryPrice: { color: '#FFFFFF', fontSize: 13, fontWeight: 'bold', marginVertical: 2 },
   categoryDesc: { color: '#64748B', fontSize: 8, textAlign: 'center' },
   favoriteCard: {
-    backgroundColor: '#1E2235',
-    borderColor: '#D97706',
+    backgroundColor: '#171B22',
+    borderColor: '#AEB7C4',
     borderWidth: 1,
     borderRadius: 14,
     padding: 12,
     marginBottom: 12,
   },
   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  favoriteTitle: { color: '#FBBF24', fontSize: 12, fontWeight: 'bold' },
+  favoriteTitle: { color: '#E2E8F0', fontSize: 12, fontWeight: 'bold' },
   favoriteSubtitle: { color: '#94A3B8', fontSize: 10 },
   tipSelectorRow: { marginTop: 8 },
   tipTitle: { color: '#CBD5E1', fontSize: 11, marginBottom: 6 },
@@ -591,7 +1050,7 @@ const styles = StyleSheet.create({
   tipChipText: { color: '#CBD5E1', fontSize: 11 },
   tipChipTextActive: { color: '#0F172A', fontWeight: 'bold' },
   confirmBtn: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#C9D1DA',
     height: 48,
     borderRadius: 14,
     justifyContent: 'center',
@@ -599,7 +1058,7 @@ const styles = StyleSheet.create({
   },
   btnDisabled: { opacity: 0.65 },
   btnLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  confirmBtnText: { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold' },
+  confirmBtnText: { color: '#101318', fontSize: 14, fontWeight: 'bold' },
   errorCard: { backgroundColor: '#7F1D1D', borderRadius: 10, padding: 10, marginTop: 10 },
   errorTitle: { color: '#FCA5A5', fontSize: 12, fontWeight: 'bold' },
   errorText: { color: '#FEE2E2', fontSize: 11 },
@@ -619,18 +1078,18 @@ const styles = StyleSheet.create({
   kmBankTitle: { fontSize: 15, fontWeight: 'bold', color: '#FFFFFF', marginBottom: 4 },
   kmBankSubtitle: { fontSize: 11, color: '#94A3B8', textAlign: 'center', marginBottom: 12 },
   kmBalanceBox: { backgroundColor: '#0F172A', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 28, alignItems: 'center' },
-  kmBalanceNumber: { fontSize: 30, fontWeight: 'bold', color: '#38BDF8' },
+  kmBalanceNumber: { fontSize: 30, fontWeight: 'bold', color: '#D5DCE5' },
   kmBalanceUnit: { fontSize: 9, color: '#94A3B8', fontWeight: 'bold' },
   walletActionCard: { backgroundColor: '#111827', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#1F2937' },
   walletItem: { color: '#E2E8F0', fontSize: 13, marginVertical: 8 },
   addPaymentBtn: { marginTop: 10, backgroundColor: '#1E293B', padding: 10, borderRadius: 10, alignItems: 'center' },
-  addPaymentText: { color: '#38BDF8', fontSize: 12, fontWeight: 'bold' },
+  addPaymentText: { color: '#D5DCE5', fontSize: 12, fontWeight: 'bold' },
   userProfileCard: { backgroundColor: '#111827', borderRadius: 16, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#1F2937', marginBottom: 20 },
-  profileAvatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#2563EB', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+  profileAvatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#AEB7C4', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
   profileAvatarText: { color: '#FFFFFF', fontSize: 24, fontWeight: 'bold' },
   profileName: { fontSize: 18, fontWeight: 'bold', color: '#FFFFFF', marginBottom: 4 },
   profileEmail: { fontSize: 13, color: '#94A3B8', marginBottom: 2 },
-  profilePhone: { fontSize: 13, color: '#60A5FA', fontWeight: '600', marginBottom: 12 },
+  profilePhone: { fontSize: 13, color: '#E2E8F0', fontWeight: '600', marginBottom: 12 },
   verifiedBadgeRow: { backgroundColor: '#047857', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   verifiedBadgeText: { color: '#ECFDF5', fontSize: 11, fontWeight: 'bold' },
   logoutButtonProfile: { backgroundColor: '#7F1D1D', padding: 14, borderRadius: 14, alignItems: 'center', borderWidth: 1, borderColor: '#DC2626' },
