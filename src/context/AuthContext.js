@@ -194,6 +194,20 @@ export function AuthProvider({ children }) {
         return await saveSession(response.data);
       }
 
+      if (
+        response.data?.success === true &&
+        response.data?.code === 'EMAIL_VERIFICATION_REQUIRED' &&
+        response.data?.requiresVerification === true
+      ) {
+        return {
+          success: true,
+          requiresVerification: true,
+          email,
+          user: response.data.user,
+          message: response.data.message,
+        };
+      }
+
       if (response.data?.success === true) {
         return {
           success: false,
@@ -212,9 +226,102 @@ export function AuthProvider({ children }) {
     } catch (error) {
       return {
         success: false,
+        code: error?.response?.data?.code || null,
         message: getErrorMessage(
           error,
           'No fue posible registrar la cuenta.'
+        ),
+      };
+    }
+  };
+
+  const verifyEmail = async (email, code) => {
+    const normalizedEmail =
+      typeof email === 'string' ? email.trim().toLowerCase() : '';
+
+    if (!isValidEmail(normalizedEmail)) {
+      return {
+        success: false,
+        message: 'Introduce un correo electrónico válido.',
+      };
+    }
+
+    if (typeof code !== 'string' || !/^\d{6}$/.test(code)) {
+      return {
+        success: false,
+        message: 'Introduce un código de seis dígitos.',
+      };
+    }
+
+    try {
+      const response = await api.post('/api/v1/auth/verify-email', {
+        email: normalizedEmail,
+        code,
+      });
+
+      if (
+        response.data?.success === true &&
+        response.data?.code === 'EMAIL_VERIFIED'
+      ) {
+        return {
+          success: true,
+          message: 'Correo verificado correctamente. Ya puedes iniciar sesión.',
+        };
+      }
+
+      return {
+        success: false,
+        message: 'No fue posible confirmar la verificación.',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: getErrorMessage(
+          error,
+          'No fue posible verificar el código.'
+        ),
+      };
+    }
+  };
+
+  const resendVerification = async (email) => {
+    const normalizedEmail =
+      typeof email === 'string' ? email.trim().toLowerCase() : '';
+
+    if (!isValidEmail(normalizedEmail)) {
+      return {
+        success: false,
+        message: 'Introduce un correo electrónico válido.',
+      };
+    }
+
+    try {
+      const response = await api.post(
+        '/api/v1/auth/resend-verification',
+        { email: normalizedEmail }
+      );
+
+      if (
+        response.data?.success === true &&
+        response.data?.code === 'VERIFICATION_REQUEST_RECEIVED'
+      ) {
+        return {
+          success: true,
+          message:
+            'Solicitud recibida. Si corresponde, recibirás un código por correo.',
+        };
+      }
+
+      return {
+        success: false,
+        message: 'No fue posible procesar la solicitud.',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: getErrorMessage(
+          error,
+          'No fue posible solicitar otro código.'
         ),
       };
     }
@@ -246,6 +353,8 @@ export function AuthProvider({ children }) {
         loading,
         login,
         register,
+        verifyEmail,
+        resendVerification,
         loginWithGoogle,
         logout,
       }}

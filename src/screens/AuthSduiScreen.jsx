@@ -15,6 +15,7 @@ import AuthSduiRenderer from '../sdui/AuthSduiRenderer';
 import { useAppTheme } from '../context/ThemeContext';
 import { getChromePalette } from '../theme/chromePalette';
 import AuthSduiSkeleton from '../sdui/AuthSduiSkeleton';
+import EmailVerificationScreen from './EmailVerificationScreen';
 import { validateAuthSchema } from '../sdui/validateAuthSchema';
 import { useAuth } from '../context/AuthContext';
 import GoogleAuthButton from '../components/GoogleAuthButton';
@@ -34,13 +35,20 @@ import ChromeSurface from '../components/ChromeSurface';
 export default function AuthSduiScreen({ onAuthSuccess }) {
   const { theme } = useAppTheme();
   const palette = getChromePalette(theme);
-  const { login, register, loginWithGoogle } = useAuth();
+  const {
+    login,
+    register,
+    verifyEmail,
+    resendVerification,
+    loginWithGoogle,
+  } = useAuth();
 
   const role = 'CLIENT';
   const [sduiSchema, setSduiSchema] = useState(null);
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
   const [mode, setMode] = useState('LOGIN'); // 'LOGIN' | 'REGISTER'
+  const [verificationEmail, setVerificationEmail] = useState(null);
 
   // Estados del Formulario
   const [emailOrPhone, setEmailOrPhone] = useState('');
@@ -163,7 +171,16 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
         password,
       });
 
-      if (res.success && res.user) {
+      if (res.success && res.requiresVerification && res.email) {
+        setPassword('');
+        setVerificationEmail(res.email);
+        setMode('LOGIN');
+      } else if (res.code === 'VERIFICATION_PENDING') {
+        setPassword('');
+        setVerificationEmail(emailOrPhone.trim().toLowerCase());
+        setMode('LOGIN');
+        setErrorMessage(null);
+      } else if (res.success && res.user) {
         if (onAuthSuccess) onAuthSuccess(res.user);
       } else {
         setErrorMessage(res.message || 'No se pudo completar el registro en este momento.');
@@ -213,6 +230,47 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
       }
     };
 
+    if (verificationEmail) {
+      return (
+        <EmailVerificationScreen
+          email={verificationEmail}
+          onVerify={async (code) => {
+            const result = await verifyEmail(verificationEmail, code);
+
+            if (!result.success) {
+              Alert.alert(
+                'No se pudo verificar',
+                result.message || 'Comprueba el código e inténtalo de nuevo.'
+              );
+              return;
+            }
+
+            setVerificationEmail(null);
+            setMode('LOGIN');
+            setErrorMessage(null);
+
+            Alert.alert(
+              'Correo verificado',
+              result.message || 'Ya puedes iniciar sesión.'
+            );
+          }}
+          onResend={async () => {
+            const result = await resendVerification(verificationEmail);
+
+            Alert.alert(
+              result.success ? 'Solicitud recibida' : 'No se pudo solicitar',
+              result.message || 'Inténtalo nuevamente más tarde.'
+            );
+          }}
+          onBack={() => {
+            setVerificationEmail(null);
+            setMode('LOGIN');
+            setErrorMessage(null);
+          }}
+        />
+      );
+    }
+
     return (
       <View style={{ flex: 1, backgroundColor: palette.background }}>
         <ScrollView
@@ -226,10 +284,7 @@ export default function AuthSduiScreen({ onAuthSuccess }) {
             <AuthSduiSkeleton />
           ) : sduiSchema ? (
             <View style={{ width: '100%' }}>
-              <CoPilotWordmark
-                size={34}
-                style={{ marginBottom: 30 }}
-              />
+
               <AuthSduiRenderer
                 schema={sduiSchema}
               values={{
